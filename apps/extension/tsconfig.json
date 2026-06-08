@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "types": ["chrome"],
+    "paths": {
+      "@vaultsync/core": ["../../packages/core/src"],
+      "@vaultsync/core/*": ["../../packages/core/src/*"],
+      "@vaultsync/ui": ["../../packages/ui/src"],
+      "@vaultsync/ui/*": ["../../packages/ui/src/*"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "sidepanel/**/*.tsx"],
+  "exclude": ["node_modules", "dist"]
+}

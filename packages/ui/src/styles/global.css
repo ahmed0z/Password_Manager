@@ -1,0 +1,436 @@
+/* ============================================================================
+   VaultSync — Global Design System CSS
+   Unified design language for Web App + Chrome Extension
+   (Mobile uses React Native StyleSheet but references the same tokens)
+   ============================================================================ */
+
+/* ---- Google Fonts ---- */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+/* ---- CSS Reset ---- */
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  line-height: 1.5;
+  min-height: 100vh;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* ---- Dark Mode (Default) ---- */
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* Backgrounds */
+  --bg-primary: hsl(222, 47%, 7%);
+  --bg-secondary: hsl(222, 42%, 10%);
+  --bg-tertiary: hsl(222, 38%, 13%);
+  --bg-elevated: hsl(222, 35%, 15%);
+  --bg-hover: hsl(222, 35%, 18%);
+  --bg-overlay: hsla(222, 47%, 5%, 0.85);
+  --bg-gradient: linear-gradient(160deg, hsl(222, 47%, 7%) 0%, hsl(225, 40%, 10%) 50%, hsl(230, 35%, 8%) 100%);
+
+  /* Surfaces (glassmorphism) */
+  --surface-card: hsla(222, 40%, 14%, 0.7);
+  --surface-border: hsla(0, 0%, 100%, 0.06);
+  --surface-border-hover: hsla(0, 0%, 100%, 0.12);
+  --surface-backdrop: blur(20px);
+
+  /* Text */
+  --text-primary: hsl(0, 0%, 95%);
+  --text-secondary: hsl(0, 0%, 65%);
+  --text-tertiary: hsl(0, 0%, 45%);
+  --text-inverse: hsl(222, 47%, 7%);
+
+  /* Accent */
+  --accent-primary: hsl(190, 95%, 60%);
+  --accent-secondary: hsl(270, 80%, 65%);
+  --accent-gradient: linear-gradient(135deg, hsl(190, 95%, 60%), hsl(270, 80%, 65%));
+  --accent-gradient-hover: linear-gradient(135deg, hsl(190, 95%, 65%), hsl(270, 80%, 70%));
+  --accent-soft: hsla(190, 95%, 60%, 0.12);
+  --accent-text: hsl(190, 95%, 60%);
+
+  /* Semantic */
+  --success: hsl(152, 69%, 55%);
+  --success-soft: hsla(152, 69%, 55%, 0.12);
+  --warning: hsl(38, 95%, 60%);
+  --warning-soft: hsla(38, 95%, 60%, 0.12);
+  --danger: hsl(0, 84%, 62%);
+  --danger-soft: hsla(0, 84%, 62%, 0.12);
+  --info: hsl(210, 90%, 62%);
+  --info-soft: hsla(210, 90%, 62%, 0.12);
+
+  /* Shadows */
+  --shadow-sm: 0 1px 3px hsla(0, 0%, 0%, 0.4), 0 1px 2px hsla(0, 0%, 0%, 0.3);
+  --shadow-md: 0 4px 12px hsla(0, 0%, 0%, 0.4), 0 2px 4px hsla(0, 0%, 0%, 0.3);
+  --shadow-lg: 0 8px 32px hsla(0, 0%, 0%, 0.5), 0 4px 8px hsla(0, 0%, 0%, 0.3);
+  --shadow-xl: 0 16px 48px hsla(0, 0%, 0%, 0.6), 0 8px 16px hsla(0, 0%, 0%, 0.3);
+  --shadow-glow: 0 0 20px hsla(190, 95%, 60%, 0.15), 0 0 40px hsla(270, 80%, 65%, 0.08);
+
+  /* Strength colors */
+  --strength-0: hsl(0, 84%, 62%);
+  --strength-1: hsl(25, 90%, 58%);
+  --strength-2: hsl(38, 95%, 60%);
+  --strength-3: hsl(85, 65%, 55%);
+  --strength-4: hsl(152, 69%, 55%);
+
+  /* Input */
+  --input-bg: hsl(222, 42%, 10%);
+  --input-border: hsla(0, 0%, 100%, 0.1);
+  --input-border-focus: hsl(190, 95%, 60%);
+  --input-placeholder: hsl(0, 0%, 40%);
+}
+
+/* ---- Light Mode ---- */
+[data-theme="light"] {
+  color-scheme: light;
+
+  --bg-primary: hsl(220, 20%, 97%);
+  --bg-secondary: hsl(220, 20%, 94%);
+  --bg-tertiary: hsl(220, 18%, 91%);
+  --bg-elevated: hsl(0, 0%, 100%);
+  --bg-hover: hsl(220, 18%, 95%);
+  --bg-overlay: hsla(220, 20%, 97%, 0.85);
+  --bg-gradient: linear-gradient(160deg, hsl(220, 20%, 97%) 0%, hsl(230, 22%, 95%) 50%, hsl(240, 20%, 98%) 100%);
+
+  --surface-card: hsla(0, 0%, 100%, 0.8);
+  --surface-border: hsla(222, 20%, 50%, 0.12);
+  --surface-border-hover: hsla(222, 20%, 50%, 0.22);
+  --surface-backdrop: blur(20px);
+
+  --text-primary: hsl(222, 47%, 11%);
+  --text-secondary: hsl(222, 15%, 40%);
+  --text-tertiary: hsl(222, 10%, 60%);
+  --text-inverse: hsl(0, 0%, 97%);
+
+  --accent-primary: hsl(220, 85%, 50%);
+  --accent-secondary: hsl(270, 70%, 55%);
+  --accent-gradient: linear-gradient(135deg, hsl(220, 85%, 50%), hsl(270, 70%, 55%));
+  --accent-gradient-hover: linear-gradient(135deg, hsl(220, 85%, 55%), hsl(270, 70%, 60%));
+  --accent-soft: hsla(220, 85%, 50%, 0.10);
+  --accent-text: hsl(220, 85%, 45%);
+
+  --success: hsl(152, 55%, 42%);
+  --success-soft: hsla(152, 55%, 42%, 0.10);
+  --warning: hsl(38, 80%, 48%);
+  --warning-soft: hsla(38, 80%, 48%, 0.10);
+  --danger: hsl(0, 72%, 52%);
+  --danger-soft: hsla(0, 72%, 52%, 0.10);
+  --info: hsl(210, 80%, 52%);
+  --info-soft: hsla(210, 80%, 52%, 0.10);
+
+  --shadow-sm: 0 1px 3px hsla(222, 20%, 30%, 0.08), 0 1px 2px hsla(222, 20%, 30%, 0.06);
+  --shadow-md: 0 4px 12px hsla(222, 20%, 30%, 0.1), 0 2px 4px hsla(222, 20%, 30%, 0.06);
+  --shadow-lg: 0 8px 32px hsla(222, 20%, 30%, 0.12), 0 4px 8px hsla(222, 20%, 30%, 0.06);
+  --shadow-xl: 0 16px 48px hsla(222, 20%, 30%, 0.15), 0 8px 16px hsla(222, 20%, 30%, 0.06);
+  --shadow-glow: 0 0 20px hsla(220, 85%, 50%, 0.1), 0 0 40px hsla(270, 70%, 55%, 0.05);
+
+  --strength-0: hsl(0, 72%, 52%);
+  --strength-1: hsl(25, 80%, 50%);
+  --strength-2: hsl(38, 80%, 48%);
+  --strength-3: hsl(85, 55%, 42%);
+  --strength-4: hsl(152, 55%, 42%);
+
+  --input-bg: hsl(0, 0%, 100%);
+  --input-border: hsla(222, 20%, 50%, 0.2);
+  --input-border-focus: hsl(220, 85%, 50%);
+  --input-placeholder: hsl(222, 10%, 60%);
+}
+
+/* ---- Spacing Variables ---- */
+:root {
+  --space-0: 0;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+  --space-20: 5rem;
+
+  --radius-sm: 0.375rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1.5rem;
+  --radius-2xl: 2rem;
+  --radius-full: 9999px;
+
+  --transition-fast: 100ms;
+  --transition-normal: 200ms;
+  --transition-smooth: 300ms;
+  --transition-slow: 500ms;
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* ---- Keyframe Animations ---- */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeInDown {
+  from { opacity: 0; transform: translateY(-12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeInScale {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  10%, 30%, 50%, 70%, 90% { transform: translateX(-4px); }
+  20%, 40%, 60%, 80% { transform: translateX(4px); }
+}
+
+@keyframes progressRing {
+  from { stroke-dashoffset: var(--ring-circumference, 283); }
+  to { stroke-dashoffset: var(--ring-offset, 0); }
+}
+
+/* ---- Base Body Styling ---- */
+body {
+  background: var(--bg-gradient);
+  color: var(--text-primary);
+}
+
+/* ---- Utility Classes ---- */
+.vs-card {
+  background: var(--surface-card);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-lg);
+  backdrop-filter: var(--surface-backdrop);
+  -webkit-backdrop-filter: var(--surface-backdrop);
+  transition: all var(--transition-smooth) var(--ease-out-expo);
+}
+
+.vs-card:hover {
+  border-color: var(--surface-border-hover);
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-1px);
+}
+
+.vs-card-static {
+  background: var(--surface-card);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-lg);
+  backdrop-filter: var(--surface-backdrop);
+  -webkit-backdrop-filter: var(--surface-backdrop);
+}
+
+.vs-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border: none;
+  border-radius: var(--radius-md);
+  font-family: inherit;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-normal) var(--ease-out-expo);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.vs-btn-primary {
+  background: var(--accent-gradient);
+  color: var(--text-inverse);
+  box-shadow: var(--shadow-sm);
+}
+
+.vs-btn-primary:hover {
+  background: var(--accent-gradient-hover);
+  box-shadow: var(--shadow-md), var(--shadow-glow);
+  transform: translateY(-1px);
+}
+
+.vs-btn-primary:active {
+  transform: translateY(0);
+}
+
+.vs-btn-secondary {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--surface-border);
+}
+
+.vs-btn-secondary:hover {
+  background: var(--bg-hover);
+  border-color: var(--surface-border-hover);
+}
+
+.vs-btn-ghost {
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.vs-btn-ghost:hover {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.vs-btn-danger {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.vs-btn-danger:hover {
+  background: var(--danger);
+  color: var(--text-inverse);
+}
+
+.vs-input {
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-md);
+  font-family: inherit;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  outline: none;
+  transition: all var(--transition-normal) ease;
+}
+
+.vs-input::placeholder {
+  color: var(--input-placeholder);
+}
+
+.vs-input:focus {
+  border-color: var(--input-border-focus);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.vs-input-password {
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.05em;
+}
+
+.vs-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-0) var(--space-2);
+  border-radius: var(--radius-full);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.vs-skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--bg-tertiary) 25%,
+    var(--bg-hover) 50%,
+    var(--bg-tertiary) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  border-radius: var(--radius-sm);
+}
+
+.vs-divider {
+  height: 1px;
+  background: var(--surface-border);
+  border: none;
+}
+
+/* ---- Scrollbar ---- */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsla(0, 0%, 50%, 0.3);
+  border-radius: var(--radius-full);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsla(0, 0%, 50%, 0.5);
+}
+
+/* ---- Focus Visible ---- */
+:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+/* ---- Selection ---- */
+::selection {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+/* ---- Password reveal animation ---- */
+.vs-password-reveal {
+  transition: filter var(--transition-smooth) ease;
+}
+
+.vs-password-reveal.blurred {
+  filter: blur(6px);
+  user-select: none;
+}
+
+/* ---- Responsive utilities ---- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

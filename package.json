@@ -1,0 +1,22 @@
+{
+  "name": "vaultsync",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cross-platform zero-knowledge password & bookmark manager",
+  "scripts": {
+    "dev:web": "pnpm --filter @vaultsync/web dev",
+    "dev:mobile": "pnpm --filter @vaultsync/mobile start",
+    "dev:extension": "pnpm --filter @vaultsync/extension dev",
+    "build": "pnpm -r build",
+    "build:web": "pnpm --filter @vaultsync/web build",
+    "build:extension": "pnpm --filter @vaultsync/extension build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint",
+    "clean": "pnpm -r exec rm -rf dist .next .expo node_modules/.cache"
+  },
+
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  }
+}
