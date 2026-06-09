@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Shield, Key, Search, Star, Copy, Eye, EyeOff,
   ExternalLink, Bookmark, Plus, RefreshCw, Check,
-  Settings, LogOut, ChevronRight, Lock, Loader2, X
+  Settings, LogOut, ChevronRight, Lock, Loader2, X, Clock
 } from 'lucide-react';
 import { signIn, getVaultItems, syncBookmarks, createVaultItem, getBookmarks } from '@vaultsync/core';
 
@@ -140,7 +140,17 @@ export function SidePanel() {
   const [addUsername, setAddUsername] = useState('');
   const [addPassword, setAddPassword] = useState('');
   const [syncing, setSyncing] = useState(false);
+  const [sessionTimeout, setSessionTimeout] = useState<string>('always');
   const refreshIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // -- Load session timeout preference on mount --
+  useEffect(() => {
+    chrome.runtime.sendMessage({ type: 'GET_SESSION_TIMEOUT' })
+      .then((resp: { timeout: string }) => {
+        if (resp?.timeout) setSessionTimeout(resp.timeout);
+      })
+      .catch(() => {});
+  }, []);
 
   // -- Dynamic tab domain tracking --
   useEffect(() => {
@@ -187,19 +197,38 @@ export function SidePanel() {
   }, []);
 
   // -- Check auth state on mount --
+  // After a browser restart, the Supabase session persists (chrome.storage.local)
+  // but the vault decryption key is lost (chrome.storage.session is ephemeral).
+  // In that case, we must show the login screen so the user re-enters their
+  // master password to re-derive the encryption key.
   useEffect(() => {
     try {
       chrome.runtime.sendMessage({ type: 'GET_AUTH_STATE' })
         .then(async (resp: { session: unknown }) => {
           if (resp?.session) {
-            setIsAuthed(true);
+            // Check if session has expired based on timeout setting
+            const expiryResp = await chrome.runtime.sendMessage({ type: 'CHECK_SESSION_EXPIRED' });
+            if (expiryResp?.expired) {
+              console.log('[VaultSync] Session timeout expired — prompting re-login');
+              await chrome.runtime.sendMessage({ type: 'CLEAR_VAULT_KEY' });
+              setIsAuthed(false);
+              return;
+            }
+
             const keyData = await chrome.runtime.sendMessage({ type: 'GET_VAULT_KEY' });
             if (keyData?.vaultKey) {
+              // Session AND key are present — fully authenticated
               const binary = atob(keyData.vaultKey);
               const bytes = new Uint8Array(binary.length);
               for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
               const key = await crypto.subtle.importKey('raw', bytes, { name: 'AES-GCM' }, true, ['encrypt', 'decrypt']);
               setVaultKey(key);
+              setIsAuthed(true);
+            } else {
+              // Session exists but vault key was lost (browser restart).
+              // Show login screen so user can re-derive the key.
+              console.log('[VaultSync] Session found but vault key missing — prompting re-login');
+              setIsAuthed(false);
             }
           }
         })
@@ -256,10 +285,17 @@ export function SidePanel() {
       loadAllData(vaultKey);
     }, 15000);
 
-    // Listen for data change broadcasts from service worker
+    // Listen for data change broadcasts and session expiry from service worker
     const handleMessage = (message: { type: string }) => {
       if (message.type === 'VAULT_DATA_CHANGED') {
         loadAllData(vaultKey);
+      }
+      if (message.type === 'SESSION_EXPIRED') {
+        // Service worker detected timeout expiry — sign out
+        setIsAuthed(false);
+        setVaultItems([]);
+        setBookmarks([]);
+        setVaultKey(null);
       }
     };
     chrome.runtime.onMessage.addListener(handleMessage);
@@ -438,7 +474,7 @@ export function SidePanel() {
           <button
             style={{ ...s.iconBtn, color: '#5ce0d6', marginRight: 6 }}
             title="Open Web Dashboard"
-            onClick={() => typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.create({ url: 'http://localhost:3000' })}
+            onClick={() => typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.create({ url: 'https://vaultsync-passwords.netlify.app/vault' })}
           >
             <ExternalLink size={14} />
           </button>
@@ -657,6 +693,55 @@ export function SidePanel() {
                 <div style={s.itemSub}>Refreshes every 15 seconds</div>
               </div>
               <span style={{ fontSize: '11px', color: '#5ce0d6', fontWeight: 700 }}>✓ Active</span>
+            </div>
+
+            <div style={s.sectionLabel}>Session Duration</div>
+            <div style={{ ...s.itemCard, flexDirection: 'column', alignItems: 'stretch', gap: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <Clock size={16} color="#a78bfa" />
+                <div style={s.itemInfo}>
+                  <div style={s.itemTitle}>Auto Sign-Out</div>
+                  <div style={s.itemSub}>How long the vault stays unlocked</div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {[
+                  { value: '12h', label: '12h' },
+                  { value: '24h', label: '24h' },
+                  { value: '2d', label: '2 Days' },
+                  { value: 'always', label: 'Always' },
+                ].map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={async () => {
+                      setSessionTimeout(opt.value);
+                      await chrome.runtime.sendMessage({
+                        type: 'SET_SESSION_TIMEOUT',
+                        payload: { timeout: opt.value }
+                      });
+                    }}
+                    style={{
+                      flex: 1,
+                      padding: '7px 0',
+                      borderRadius: 8,
+                      border: sessionTimeout === opt.value
+                        ? '1px solid rgba(167,139,250,0.5)'
+                        : '1px solid rgba(255,255,255,0.08)',
+                      background: sessionTimeout === opt.value
+                        ? 'rgba(167,139,250,0.15)'
+                        : 'rgba(255,255,255,0.04)',
+                      color: sessionTimeout === opt.value ? '#c4b5fd' : '#8a8f9e',
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      fontFamily: 'inherit',
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div style={s.sectionLabel}>Account</div>

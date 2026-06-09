@@ -117,6 +117,8 @@ async function handleMessage(
     case 'STORE_VAULT_KEY': {
       const { keyBase64, salt } = message.payload as { keyBase64: string; salt: string };
       await chrome.storage.session.set({ vaultKey: keyBase64, vaultSalt: salt });
+      // Record the login timestamp for session timeout tracking
+      await chrome.storage.local.set({ loginTimestamp: Date.now() });
       return { success: true };
     }
 
@@ -127,7 +129,25 @@ async function handleMessage(
 
     case 'CLEAR_VAULT_KEY': {
       await chrome.storage.session.remove(['vaultKey', 'vaultSalt']);
+      await chrome.storage.local.remove(['loginTimestamp']);
       return { success: true };
+    }
+
+    case 'SET_SESSION_TIMEOUT': {
+      const { timeout } = message.payload as { timeout: string };
+      await chrome.storage.local.set({ sessionTimeout: timeout });
+      console.log(`[VaultSync] Session timeout set to: ${timeout}`);
+      return { success: true };
+    }
+
+    case 'GET_SESSION_TIMEOUT': {
+      const result = await chrome.storage.local.get(['sessionTimeout']);
+      return { timeout: result.sessionTimeout || 'always' };
+    }
+
+    case 'CHECK_SESSION_EXPIRED': {
+      const expired = await isSessionExpired();
+      return { expired };
     }
 
     case 'OPEN_SIDE_PANEL': {
@@ -377,9 +397,32 @@ function flattenBookmarks(
   return results;
 }
 
+// ---- Session Timeout Helpers ----
+const TIMEOUT_DURATIONS: Record<string, number> = {
+  '12h': 12 * 60 * 60 * 1000,
+  '24h': 24 * 60 * 60 * 1000,
+  '2d':  2 * 24 * 60 * 60 * 1000,
+  'always': 0, // 0 = never expires
+};
+
+async function isSessionExpired(): Promise<boolean> {
+  const result = await chrome.storage.local.get(['sessionTimeout', 'loginTimestamp']);
+  const timeout = result.sessionTimeout || 'always';
+  if (timeout === 'always') return false;
+
+  const loginTimestamp = result.loginTimestamp;
+  if (!loginTimestamp) return true; // No timestamp recorded — treat as expired
+
+  const durationMs = TIMEOUT_DURATIONS[timeout] || 0;
+  if (durationMs === 0) return false;
+
+  return Date.now() - loginTimestamp > durationMs;
+}
+
 // ---- Periodic Data Refresh (15-second sync alarm) ----
 chrome.alarms.create('vault-sync', { periodInMinutes: 0.25 }); // 15 seconds
 chrome.alarms.create('bookmark-sync', { periodInMinutes: 30 });
+chrome.alarms.create('session-timeout-check', { periodInMinutes: 1 }); // Check every minute
 
 chrome.alarms.onAlarm.addListener(async (alarm: any) => {
   if (alarm.name === 'vault-sync') {
@@ -399,6 +442,38 @@ chrome.alarms.onAlarm.addListener(async (alarm: any) => {
     if (data.session) {
       console.log('[VaultSync] Periodic bookmark sync triggered');
     }
+  }
+
+  if (alarm.name === 'session-timeout-check') {
+    // Auto-sign out if session has expired
+    try {
+      const expired = await isSessionExpired();
+      if (expired) {
+        const keyResult = await chrome.storage.session.get(['vaultKey']);
+        if (keyResult.vaultKey) {
+          console.log('[VaultSync] Session timeout expired — clearing vault key');
+          await chrome.storage.session.remove(['vaultKey', 'vaultSalt']);
+          await chrome.storage.local.remove(['loginTimestamp']);
+          // Notify side panels to show the login screen
+          chrome.runtime.sendMessage({ type: 'SESSION_EXPIRED' }).catch(() => {});
+        }
+      }
+    } catch { /* ignore */ }
+  }
+});
+
+// ---- Browser Startup: refresh Supabase session so data loads immediately ----
+chrome.runtime.onStartup.addListener(async () => {
+  console.log('[VaultSync] Browser started — refreshing auth session');
+  try {
+    const { data, error } = await supabase.auth.getSession();
+    if (data.session && !error) {
+      // Proactively refresh the token so it's valid for the next side panel open
+      await supabase.auth.refreshSession();
+      console.log('[VaultSync] Session refreshed on startup');
+    }
+  } catch (e) {
+    console.warn('[VaultSync] Session refresh on startup failed:', e);
   }
 });
 
