@@ -1,10 +1,14 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Bookmark, ExternalLink, Trash2, Search, RefreshCw, Grid, List, Edit, Loader2 } from 'lucide-react';
 import { getBookmarks, deleteBookmark, updateBookmark, type Bookmark as BookmarkType, type DecryptedBookmark } from '@vaultsync/core';
 
-export default function BookmarksPage() {
+function BookmarksContent() {
+  const searchParams = useSearchParams();
+  const selectedFolderPath = searchParams.get('folder');
+
   const [bookmarks, setBookmarks] = useState<Array<BookmarkType & { decrypted: DecryptedBookmark }>>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -31,9 +35,23 @@ export default function BookmarksPage() {
     }
   }, [getVaultKey]);
 
-  useEffect(() => { loadBookmarks(); }, [loadBookmarks]);
+  useEffect(() => {
+    loadBookmarks();
+
+    // Listen to custom reload events from sidebar actions
+    window.addEventListener('bookmarks-data-changed', loadBookmarks);
+    return () => {
+      window.removeEventListener('bookmarks-data-changed', loadBookmarks);
+    };
+  }, [loadBookmarks]);
 
   const filtered = bookmarks.filter((b) => {
+    if (selectedFolderPath) {
+      const path = b.decrypted.folderPath || '';
+      if (path !== selectedFolderPath && !path.startsWith(selectedFolderPath + '/')) {
+        return false;
+      }
+    }
     if (!searchQuery) return true;
     const q = searchQuery.toLowerCase();
     return b.decrypted.title.toLowerCase().includes(q) || b.decrypted.url.toLowerCase().includes(q);
@@ -57,13 +75,15 @@ export default function BookmarksPage() {
     grouped.get(key)!.push(b);
   });
 
+  const subtitle = selectedFolderPath ? `Folder: ${selectedFolderPath}` : `${bookmarks.length} synced bookmarks`;
+
   return (
     <div>
       <div className="dashboard-header">
         <div>
           <h1 className="dashboard-title">Bookmarks</h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
-            {bookmarks.length} synced bookmarks
+            {subtitle}
           </p>
         </div>
         <div className="dashboard-actions">
@@ -259,5 +279,17 @@ function EditBookmarkModal({
         </form>
       </div>
     </div>
+  );
+}
+
+export default function BookmarksPage() {
+  return (
+    <Suspense fallback={
+      <div style={{ padding: 'var(--space-6)', display: 'flex', justifyContent: 'center' }}>
+        <Loader2 size={24} style={{ animation: 'spin 1s linear infinite' }} />
+      </div>
+    }>
+      <BookmarksContent />
+    </Suspense>
   );
 }

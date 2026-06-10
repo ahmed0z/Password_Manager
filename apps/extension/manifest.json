@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "VaultSync — Password & Bookmark Manager",
+  "name": "VaultSync",
   "description": "Zero-knowledge password manager with smart autofill and bookmark sync.",
   "version": "1.0.1",
   "icons": {

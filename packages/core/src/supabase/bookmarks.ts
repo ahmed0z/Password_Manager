@@ -192,3 +192,67 @@ export async function updateBookmark(
 
   if (error) throw new Error(`Failed to update bookmark: ${error.message}`);
 }
+
+/**
+ * Renames a folder for bookmarks by updating folder paths of matching bookmarks.
+ */
+export async function renameBookmarkFolder(
+  oldPath: string,
+  newPath: string,
+  vaultKey: CryptoKey
+): Promise<void> {
+  const allBookmarks = await getBookmarks(vaultKey);
+  const matching = allBookmarks.filter((b) => {
+    const p = b.decrypted.folderPath || '';
+    return p === oldPath || p.startsWith(oldPath + '/');
+  });
+
+  await Promise.all(
+    matching.map((b) => {
+      const p = b.decrypted.folderPath || '';
+      const updatedPath = p === oldPath ? newPath : newPath + p.substring(oldPath.length);
+      return updateBookmark(
+        b.id,
+        {
+          title: b.decrypted.title,
+          url: b.decrypted.url,
+          favicon: b.decrypted.favicon,
+          description: b.decrypted.description,
+          folderPath: updatedPath || undefined,
+        },
+        vaultKey
+      );
+    })
+  );
+}
+
+/**
+ * Deletes a bookmark folder by moving all its contents to root.
+ */
+export async function deleteBookmarkFolder(
+  path: string,
+  vaultKey: CryptoKey
+): Promise<void> {
+  const allBookmarks = await getBookmarks(vaultKey);
+  const matching = allBookmarks.filter((b) => {
+    const p = b.decrypted.folderPath || '';
+    return p === path || p.startsWith(path + '/');
+  });
+
+  await Promise.all(
+    matching.map((b) => {
+      return updateBookmark(
+        b.id,
+        {
+          title: b.decrypted.title,
+          url: b.decrypted.url,
+          favicon: b.decrypted.favicon,
+          description: b.decrypted.description,
+          folderPath: undefined,
+        },
+        vaultKey
+      );
+    })
+  );
+}
+

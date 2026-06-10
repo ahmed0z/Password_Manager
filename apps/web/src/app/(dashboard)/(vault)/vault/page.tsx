@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import {
   Plus, Search, Key, Star, Copy, Eye, EyeOff,
   ExternalLink, Trash2, Edit3, Loader2, FolderPlus,
@@ -11,7 +12,10 @@ import {
   type DecryptedVaultItem, type VaultItem, type DecryptedFolder,
 } from '@vaultsync/core';
 
-export default function VaultPage() {
+function VaultContent() {
+  const searchParams = useSearchParams();
+  const selectedFolderId = searchParams.get('folder');
+
   const [items, setItems] = useState<Array<VaultItem & { decrypted: DecryptedVaultItem }>>([]);
   const [folders, setFolders] = useState<DecryptedFolder[]>([]);
   const [loading, setLoading] = useState(true);
@@ -53,9 +57,18 @@ export default function VaultPage() {
 
   useEffect(() => {
     loadData();
+
+    // Listen to custom reload events from the sidebar
+    window.addEventListener('vault-data-changed', loadData);
+    return () => {
+      window.removeEventListener('vault-data-changed', loadData);
+    };
   }, [loadData]);
 
   const filteredItems = items.filter((item) => {
+    // Filter by selected folder if present
+    if (selectedFolderId && item.folder_id !== selectedFolderId) return false;
+
     if (!searchQuery) return true;
     const q = searchQuery.toLowerCase();
     const d = item.decrypted;
@@ -69,6 +82,7 @@ export default function VaultPage() {
 
   const favorites = filteredItems.filter((i) => i.is_favorite);
   const regular = filteredItems.filter((i) => !i.is_favorite);
+
 
   const handleCopy = async (text: string, id: string) => {
     await navigator.clipboard.writeText(text);
@@ -124,6 +138,11 @@ export default function VaultPage() {
     );
   }
 
+  const selectedFolder = folders.find((f) => f.id === selectedFolderId);
+  const subtitle = selectedFolder
+    ? `Folder: ${selectedFolder.name}`
+    : `${items.length} ${items.length === 1 ? 'item' : 'items'} stored securely`;
+
   return (
     <div>
       {/* Header */}
@@ -131,7 +150,7 @@ export default function VaultPage() {
         <div>
           <h1 className="dashboard-title">Vault</h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
-            {items.length} {items.length === 1 ? 'item' : 'items'} stored securely
+            {subtitle}
           </p>
         </div>
         <div className="dashboard-actions">
@@ -539,5 +558,17 @@ function AddFolderModal({
         </form>
       </div>
     </div>
+  );
+}
+
+export default function VaultPage() {
+  return (
+    <Suspense fallback={
+      <div style={{ padding: 'var(--space-6)', display: 'flex', justifyContent: 'center' }}>
+        <Loader2 size={24} style={{ animation: 'spin 1s linear infinite' }} />
+      </div>
+    }>
+      <VaultContent />
+    </Suspense>
   );
 }

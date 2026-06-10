@@ -4,7 +4,12 @@ import {
   ExternalLink, Bookmark, Plus, RefreshCw, Check,
   Settings, LogOut, ChevronRight, Lock, Loader2, X, Clock
 } from 'lucide-react';
-import { signIn, getVaultItems, syncBookmarks, createVaultItem, getBookmarks } from '@vaultsync/core';
+import {
+  signIn, getVaultItems, syncBookmarks, createVaultItem, getBookmarks,
+  getFolders, createFolder, renameFolder, deleteFolder, buildFolderTree,
+  renameBookmarkFolder, deleteBookmarkFolder, buildBookmarkFolderTree,
+  type DecryptedFolder, type BookmarkFolderNode
+} from '@vaultsync/core';
 
 // Inline styles for the floating side panel
 const s = {
@@ -100,6 +105,157 @@ const s = {
   },
 };
 
+const fStyles = {
+  section: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '6px',
+    marginBottom: '10px',
+  },
+  header: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '0 4px',
+    color: '#8a8f9e',
+    fontSize: '11px',
+    fontWeight: 700,
+    textTransform: 'uppercase' as const,
+    letterSpacing: '0.05em',
+  },
+  card: {
+    border: '1px solid rgba(255, 255, 255, 0.08)',
+    borderRadius: '8px',
+    background: 'rgba(255, 255, 255, 0.02)',
+    overflow: 'hidden',
+    display: 'flex',
+    flexDirection: 'column' as const,
+    maxHeight: '180px',
+    overflowY: 'auto' as const,
+  },
+  row: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    padding: '8px 12px',
+    color: '#8a8f9e',
+    fontSize: '12px',
+    fontWeight: 500,
+    cursor: 'pointer',
+    borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+    userSelect: 'none' as const,
+    transition: 'all 0.1s ease',
+  },
+  activeRow: {
+    background: 'rgba(92, 224, 214, 0.08)',
+    color: '#5ce0d6',
+    fontWeight: 600,
+  },
+  actions: {
+    display: 'flex',
+    marginLeft: 'auto',
+    gap: '4px',
+  },
+  actionBtn: {
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    padding: '2px',
+    color: '#8a8f9e',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterBadge: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '6px 12px',
+    borderRadius: '8px',
+    background: 'rgba(92, 224, 214, 0.1)',
+    border: '1px solid rgba(92, 224, 214, 0.2)',
+    color: '#5ce0d6',
+    fontSize: '12px',
+    marginBottom: '10px',
+  }
+};
+
+const mStyles = {
+  overlay: {
+    position: 'fixed' as const,
+    top: 0, left: 0, right: 0, bottom: 0,
+    background: 'rgba(5, 8, 16, 0.85)',
+    backdropFilter: 'blur(4px)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10000,
+    padding: '16px',
+  },
+  modal: {
+    width: '100%',
+    maxWidth: '320px',
+    background: '#0d1527',
+    border: '1px solid rgba(255, 255, 255, 0.1)',
+    borderRadius: '12px',
+    padding: '16px',
+    boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '12px',
+  },
+  header: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  title: {
+    fontSize: '14px',
+    fontWeight: 700,
+    color: '#f2f2f2',
+  },
+  closeBtn: {
+    background: 'none',
+    border: 'none',
+    color: '#8a8f9e',
+    cursor: 'pointer',
+    padding: '4px',
+    display: 'flex',
+  },
+  form: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '12px',
+  },
+  buttons: {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    gap: '8px',
+  },
+  cancelBtn: {
+    padding: '8px 16px',
+    borderRadius: '8px',
+    border: '1px solid rgba(255, 255, 255, 0.08)',
+    background: 'rgba(255, 255, 255, 0.04)',
+    color: '#8a8f9e',
+    fontSize: '12px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  saveBtn: {
+    padding: '8px 16px',
+    borderRadius: '8px',
+    border: 'none',
+    background: 'linear-gradient(135deg, #5ce0d6, #a78bfa)',
+    color: '#0a0f1e',
+    fontSize: '12px',
+    fontWeight: 700,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+};
+
 // Helper: get favicon URL for a domain
 function getFaviconUrl(domain: string): string {
   return `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
@@ -133,6 +289,32 @@ export function SidePanel() {
   const [vaultItems, setVaultItems] = useState<VaultEntry[]>([]);
   const [bookmarks, setBookmarks] = useState<BookmarkEntry[]>([]);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const [folders, setFolders] = useState<DecryptedFolder[]>([]);
+  const [passwordFolderTree, setPasswordFolderTree] = useState<DecryptedFolder[]>([]);
+  const [bookmarkFolderTree, setBookmarkFolderTree] = useState<BookmarkFolderNode[]>([]);
+  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
+  const [selectedFolderPath, setSelectedFolderPath] = useState<string | null>(null);
+  const [showFoldersList, setShowFoldersList] = useState(false);
+  const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
+
+  const toggleFolder = (id: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setExpandedFolders(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  // Modals / forms state inside extension panel
+  const [showAddFolderModal, setShowAddFolderModal] = useState(false);
+  const [showRenameFolderModal, setShowRenameFolderModal] = useState(false);
+  const [folderParentId, setFolderParentId] = useState<string | undefined>(undefined);
+  const [folderRenameId, setFolderRenameId] = useState<string | null>(null);
+  const [folderRenameName, setFolderRenameName] = useState('');
+  const [folderNewName, setFolderNewName] = useState('');
+
+  // Bookmarks Folder Add / Rename / Delete
+  const [showBookmarkFolderModal, setShowBookmarkFolderModal] = useState<'add' | 'rename' | null>(null);
+  const [bookmarkOldPath, setBookmarkOldPath] = useState('');
+  const [bookmarkNewPath, setBookmarkNewPath] = useState('');
   const [vaultKey, setVaultKey] = useState<CryptoKey | null>(null);
   const [currentDomain, setCurrentDomain] = useState<string>('');
   const [currentUrl, setCurrentUrl] = useState<string>('');
@@ -241,10 +423,14 @@ export function SidePanel() {
   // -- Data loading function --
   const loadAllData = useCallback(async (key: CryptoKey) => {
     try {
-      const [items, bmarks] = await Promise.all([
+      const [items, bmarks, userFolders] = await Promise.all([
         getVaultItems(key),
         getBookmarks(key),
+        getFolders(key),
       ]);
+
+      setFolders(userFolders);
+      setPasswordFolderTree(buildFolderTree(userFolders));
 
       setVaultItems(items.map(i => {
         const domain = i.domain || '';
@@ -254,6 +440,7 @@ export function SidePanel() {
           username: i.decrypted.username,
           domain,
           favicon: i.favicon_url || (domain ? getFaviconUrl(domain) : undefined),
+          folderId: i.folder_id,
         };
       }));
 
@@ -266,12 +453,234 @@ export function SidePanel() {
           url: i.decrypted.url,
           domain,
           favicon: i.decrypted.favicon || (domain ? getFaviconUrl(domain) : undefined),
+          folderPath: i.decrypted.folderPath,
         };
       }));
+
+      // Bookmark Folder Tree parsing
+      const paths = new Set<string>();
+      bmarks.forEach(b => {
+        if (b.decrypted.folderPath) paths.add(b.decrypted.folderPath);
+      });
+      const storedEmpty = localStorage.getItem('vaultsync-empty-bookmark-folders');
+      if (storedEmpty) {
+        try {
+          const emptyList: string[] = JSON.parse(storedEmpty);
+          emptyList.forEach(p => paths.add(p));
+        } catch {}
+      }
+      setBookmarkFolderTree(buildBookmarkFolderTree(Array.from(paths)));
+
     } catch (e) {
       console.error('[VaultSync] Failed to load data:', e);
     }
   }, []);
+
+  // -- Folder CRUD Handlers --
+  const handleCreateFolderSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!vaultKey || !folderNewName.trim()) return;
+    try {
+      await createFolder(folderNewName.trim(), vaultKey, folderParentId);
+      setShowAddFolderModal(false);
+      await loadAllData(vaultKey);
+    } catch (err) {
+      alert('Failed to create folder');
+    }
+  };
+
+  const handleRenameFolderSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!vaultKey || !folderRenameId || !folderRenameName.trim()) return;
+    try {
+      await renameFolder(folderRenameId, folderRenameName.trim(), vaultKey);
+      setShowRenameFolderModal(false);
+      await loadAllData(vaultKey);
+    } catch (err) {
+      alert('Failed to rename folder');
+    }
+  };
+
+  const handleDeleteFolder = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this folder? Passwords will be moved to root.')) return;
+    try {
+      await deleteFolder(id);
+      if (selectedFolderId === id) setSelectedFolderId(null);
+      if (vaultKey) await loadAllData(vaultKey);
+    } catch (err) {
+      alert('Failed to delete folder');
+    }
+  };
+
+  const handleCreateBookmarkFolderSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!bookmarkNewPath.trim()) return;
+    const path = bookmarkNewPath.trim();
+    const storedEmpty = localStorage.getItem('vaultsync-empty-bookmark-folders');
+    let emptyList: string[] = [];
+    if (storedEmpty) {
+      try { emptyList = JSON.parse(storedEmpty); } catch {}
+    }
+    if (!emptyList.includes(path)) {
+      emptyList.push(path);
+      localStorage.setItem('vaultsync-empty-bookmark-folders', JSON.stringify(emptyList));
+    }
+    setShowBookmarkFolderModal(null);
+    if (vaultKey) await loadAllData(vaultKey);
+  };
+
+  const handleRenameBookmarkFolderSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!vaultKey || !bookmarkNewPath.trim() || !bookmarkOldPath) return;
+    try {
+      const newPath = bookmarkNewPath.trim();
+      await renameBookmarkFolder(bookmarkOldPath, newPath, vaultKey);
+      
+      const storedEmpty = localStorage.getItem('vaultsync-empty-bookmark-folders');
+      if (storedEmpty) {
+        try {
+          let emptyList: string[] = JSON.parse(storedEmpty);
+          emptyList = emptyList.map(p => {
+            if (p === bookmarkOldPath) return newPath;
+            if (p.startsWith(bookmarkOldPath + '/')) {
+              return newPath + p.substring(bookmarkOldPath.length);
+            }
+            return p;
+          });
+          localStorage.setItem('vaultsync-empty-bookmark-folders', JSON.stringify(emptyList));
+        } catch {}
+      }
+      setShowBookmarkFolderModal(null);
+      if (selectedFolderPath === bookmarkOldPath) setSelectedFolderPath(newPath);
+      await loadAllData(vaultKey);
+    } catch (err) {
+      alert('Failed to rename folder');
+    }
+  };
+
+  const handleDeleteBookmarkFolder = async (path: string) => {
+    if (!confirm(`Are you sure you want to delete folder "${path}"? Bookmarks will move to root.`)) return;
+    try {
+      if (!vaultKey) return;
+      await deleteBookmarkFolder(path, vaultKey);
+      
+      const storedEmpty = localStorage.getItem('vaultsync-empty-bookmark-folders');
+      if (storedEmpty) {
+        try {
+          let emptyList: string[] = JSON.parse(storedEmpty);
+          emptyList = emptyList.filter(p => p !== path && !p.startsWith(path + '/'));
+          localStorage.setItem('vaultsync-empty-bookmark-folders', JSON.stringify(emptyList));
+        } catch {}
+      }
+      if (selectedFolderPath === path) setSelectedFolderPath(null);
+      await loadAllData(vaultKey);
+    } catch (err) {
+      alert('Failed to delete folder');
+    }
+  };
+
+  const renderPasswordFolder = (folder: DecryptedFolder, level = 0): React.ReactNode => {
+    const isActive = selectedFolderId === folder.id;
+    const isExpanded = expandedFolders[folder.id];
+    const hasChildren = folder.children && folder.children.length > 0;
+
+    return (
+      <div key={folder.id}>
+        <div
+          style={{
+            ...fStyles.row,
+            ...(isActive ? fStyles.activeRow : {}),
+            paddingLeft: `${level * 12 + 12}px`
+          }}
+          onClick={() => setSelectedFolderId(folder.id)}
+        >
+          <div 
+            style={{ display: 'flex', alignItems: 'center', cursor: hasChildren ? 'pointer' : 'default', width: 14, height: 14, justifyContent: 'center' }}
+            onClick={(e) => hasChildren && toggleFolder(folder.id, e)}
+          >
+            {hasChildren ? (
+              <ChevronRight size={12} color="#8a8f9e" style={{ transform: isExpanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s' }} />
+            ) : (
+              <div style={{ width: 12, height: 12, background: 'rgba(255,255,255,0.2)', borderRadius: 2 }} />
+            )}
+          </div>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{folder.name}</span>
+          <div style={fStyles.actions} onClick={e => e.stopPropagation()}>
+            <button
+              style={fStyles.actionBtn}
+              onClick={() => { setFolderParentId(folder.id); setFolderNewName(''); setShowAddFolderModal(true); }}
+              title="Add Subfolder"
+            >
+              <Plus size={10} color="#8a8f9e" />
+            </button>
+            <button
+              style={fStyles.actionBtn}
+              onClick={() => { setFolderRenameId(folder.id); setFolderRenameName(folder.name); setShowRenameFolderModal(true); }}
+              title="Rename"
+            >
+              <Settings size={10} color="#8a8f9e" />
+            </button>
+            <button
+              style={fStyles.actionBtn}
+              onClick={() => handleDeleteFolder(folder.id)}
+              title="Delete"
+            >
+              <X size={10} color="#ef4444" />
+            </button>
+          </div>
+        </div>
+        {hasChildren && isExpanded && folder.children!.map(child => renderPasswordFolder(child, level + 1))}
+      </div>
+    );
+  };
+
+  const renderBookmarkFolder = (node: BookmarkFolderNode, level = 0): React.ReactNode => {
+    const isActive = selectedFolderPath === node.path;
+    const isExpanded = expandedFolders[node.path];
+    const hasChildren = node.children && node.children.length > 0;
+
+    return (
+      <div key={node.path}>
+        <div
+          style={{
+            ...fStyles.row,
+            ...(isActive ? { ...fStyles.activeRow, color: '#a78bfa', background: 'rgba(167, 139, 250, 0.08)' } : {}),
+            paddingLeft: `${level * 12 + 12}px`
+          }}
+          onClick={() => setSelectedFolderPath(node.path)}
+        >
+          <div 
+            style={{ display: 'flex', alignItems: 'center', cursor: hasChildren ? 'pointer' : 'default', width: 14, height: 14, justifyContent: 'center' }}
+            onClick={(e) => hasChildren && toggleFolder(node.path, e)}
+          >
+            {hasChildren ? (
+              <ChevronRight size={12} color="#8a8f9e" style={{ transform: isExpanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s' }} />
+            ) : (
+              <div style={{ width: 12, height: 12, background: 'rgba(255,255,255,0.2)', borderRadius: 2 }} />
+            )}
+          </div>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{node.name}</span>
+          <div style={fStyles.actions} onClick={e => e.stopPropagation()}>
+            <button
+              style={fStyles.actionBtn}
+              onClick={() => { setBookmarkOldPath(node.path); setBookmarkNewPath(node.path); setShowBookmarkFolderModal('rename'); }}
+              title="Rename"
+            >
+              <Settings size={10} color="#8a8f9e" />
+            </button>
+            <button
+              style={fStyles.actionBtn}
+              onClick={() => handleDeleteBookmarkFolder(node.path)}
+              title="Delete"
+            >
+              <X size={10} color="#ef4444" />
+            </button>
+          </div>
+        </div>
+        {hasChildren && isExpanded && node.children!.map(child => renderBookmarkFolder(child, level + 1))}
+      </div>
+    );
+  };
 
   // -- Load data immediately when vault key becomes available, then refresh every 15s --
   useEffect(() => {
@@ -409,14 +818,19 @@ export function SidePanel() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  // -- Search filtering --
+  // -- Search and Folder filtering --
   const filteredVaultItems = vaultItems.filter(item => {
+    if (selectedFolderId && (item as any).folderId !== selectedFolderId) return false;
     if (!search) return true;
     const q = search.toLowerCase();
     return item.title.toLowerCase().includes(q) || item.username.toLowerCase().includes(q) || item.domain.toLowerCase().includes(q);
   });
 
   const filteredBookmarks = bookmarks.filter(b => {
+    if (selectedFolderPath) {
+      const path = (b as any).folderPath || '';
+      if (path !== selectedFolderPath && !path.startsWith(selectedFolderPath + '/')) return false;
+    }
     if (!search) return true;
     const q = search.toLowerCase();
     return b.title.toLowerCase().includes(q) || b.url.toLowerCase().includes(q) || b.domain.toLowerCase().includes(q);
@@ -517,6 +931,39 @@ export function SidePanel() {
       <div style={s.content}>
         {tab === 'vault' && (
           <>
+            <div style={fStyles.section}>
+              <div style={fStyles.header}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }} onClick={() => setShowFoldersList(!showFoldersList)}>
+                  📁 Folders {showFoldersList ? '▲' : '▼'}
+                </span>
+                <button
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex' }}
+                  onClick={() => { setFolderParentId(undefined); setFolderNewName(''); setShowAddFolderModal(true); }}
+                >
+                  <Plus size={12} color="#5ce0d6" />
+                </button>
+              </div>
+              
+              {showFoldersList && (
+                <div style={fStyles.card}>
+                  {passwordFolderTree.length === 0 ? (
+                    <div style={{ padding: '10px', color: '#4a5068', fontSize: '11px', textAlign: 'center' }}>No folders</div>
+                  ) : (
+                    passwordFolderTree.map(f => renderPasswordFolder(f, 0))
+                  )}
+                </div>
+              )}
+            </div>
+
+            {selectedFolderId && (
+              <div style={fStyles.filterBadge}>
+                <span>Active Folder: {folders.find(f => f.id === selectedFolderId)?.name}</span>
+                <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#5ce0d6', display: 'flex' }} onClick={() => setSelectedFolderId(null)}>
+                  <X size={14} />
+                </button>
+              </div>
+            )}
+
             {currentDomain && (
               <>
                 <div style={s.sectionLabel}>This Site ({currentDomain})</div>
@@ -598,6 +1045,39 @@ export function SidePanel() {
 
         {tab === 'bookmarks' && (
           <>
+            <div style={fStyles.section}>
+              <div style={fStyles.header}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }} onClick={() => setShowFoldersList(!showFoldersList)}>
+                  📁 Folders {showFoldersList ? '▲' : '▼'}
+                </span>
+                <button
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex' }}
+                  onClick={() => { setBookmarkNewPath(''); setShowBookmarkFolderModal('add'); }}
+                >
+                  <Plus size={12} color="#a78bfa" />
+                </button>
+              </div>
+
+              {showFoldersList && (
+                <div style={fStyles.card}>
+                  {bookmarkFolderTree.length === 0 ? (
+                    <div style={{ padding: '10px', color: '#4a5068', fontSize: '11px', textAlign: 'center' }}>No folders</div>
+                  ) : (
+                    bookmarkFolderTree.map(n => renderBookmarkFolder(n, 0))
+                  )}
+                </div>
+              )}
+            </div>
+
+            {selectedFolderPath && (
+              <div style={{ ...fStyles.filterBadge, background: 'rgba(167, 139, 250, 0.1)', borderColor: 'rgba(167, 139, 250, 0.2)', color: '#a78bfa' }}>
+                <span>Active Folder: {selectedFolderPath}</span>
+                <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#a78bfa', display: 'flex' }} onClick={() => setSelectedFolderPath(null)}>
+                  <X size={14} />
+                </button>
+              </div>
+            )}
+
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
               <div style={s.sectionLabel}>Synced Bookmarks</div>
               <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -785,6 +1265,90 @@ export function SidePanel() {
           </button>
         ))}
       </div>
+
+      {/* Folder Modals */}
+      {showAddFolderModal && (
+        <div style={mStyles.overlay}>
+          <div style={mStyles.modal}>
+            <div style={mStyles.header}>
+              <span style={mStyles.title}>{folderParentId ? 'Add Subfolder' : 'Add Folder'}</span>
+              <button style={mStyles.closeBtn} onClick={() => setShowAddFolderModal(false)}><X size={16} /></button>
+            </div>
+            <form onSubmit={handleCreateFolderSubmit} style={mStyles.form}>
+              <input
+                style={s.authInput}
+                placeholder="Folder Name"
+                value={folderNewName}
+                onChange={(e) => setFolderNewName(e.target.value)}
+                autoFocus
+              />
+              <div style={mStyles.buttons}>
+                <button type="button" style={mStyles.cancelBtn} onClick={() => setShowAddFolderModal(false)}>Cancel</button>
+                <button type="submit" style={mStyles.saveBtn}>Create</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showRenameFolderModal && (
+        <div style={mStyles.overlay}>
+          <div style={mStyles.modal}>
+            <div style={mStyles.header}>
+              <span style={mStyles.title}>Rename Folder</span>
+              <button style={mStyles.closeBtn} onClick={() => setShowRenameFolderModal(false)}><X size={16} /></button>
+            </div>
+            <form onSubmit={handleRenameFolderSubmit} style={mStyles.form}>
+              <input
+                style={s.authInput}
+                placeholder="Folder Name"
+                value={folderRenameName}
+                onChange={(e) => setFolderRenameName(e.target.value)}
+                autoFocus
+              />
+              <div style={mStyles.buttons}>
+                <button type="button" style={mStyles.cancelBtn} onClick={() => setShowRenameFolderModal(false)}>Cancel</button>
+                <button type="submit" style={mStyles.saveBtn}>Rename</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showBookmarkFolderModal && (
+        <div style={mStyles.overlay}>
+          <div style={mStyles.modal}>
+            <div style={mStyles.header}>
+              <span style={mStyles.title}>
+                {showBookmarkFolderModal === 'add' ? 'Add Bookmark Folder' : 'Rename Bookmark Folder'}
+              </span>
+              <button style={mStyles.closeBtn} onClick={() => setShowBookmarkFolderModal(null)}><X size={16} /></button>
+            </div>
+            <form
+              onSubmit={
+                showBookmarkFolderModal === 'add'
+                  ? handleCreateBookmarkFolderSubmit
+                  : handleRenameBookmarkFolderSubmit
+              }
+              style={mStyles.form}
+            >
+              <input
+                style={s.authInput}
+                placeholder="Folder Path (e.g. Work/Finance)"
+                value={bookmarkNewPath}
+                onChange={(e) => setBookmarkNewPath(e.target.value)}
+                autoFocus
+              />
+              <div style={mStyles.buttons}>
+                <button type="button" style={mStyles.cancelBtn} onClick={() => setShowBookmarkFolderModal(null)}>Cancel</button>
+                <button type="submit" style={mStyles.saveBtn}>
+                  {showBookmarkFolderModal === 'add' ? 'Create' : 'Rename'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

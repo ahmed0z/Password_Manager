@@ -201,3 +201,10 @@ export interface DetectedField {
   fieldType: 'username' | 'email' | 'password' | 'unknown';
   confidence: number;  // 0-1
 }
+
+export interface BookmarkFolderNode {
+  name: string;
+  path: string;
+  children: BookmarkFolderNode[];
+}
+

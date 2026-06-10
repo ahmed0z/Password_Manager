@@ -41,4 +41,6 @@ export {
   updateBookmark,
   clearAllBookmarks,
   subscribeToBookmarks,
+  renameBookmarkFolder,
+  deleteBookmarkFolder,
 } from './bookmarks';
