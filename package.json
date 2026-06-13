@@ -1,6 +1,6 @@
 {
   "name": "vaultsync",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "private": true,
   "description": "Cross-platform zero-knowledge password & bookmark manager",
   "scripts": {
