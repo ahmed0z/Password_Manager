@@ -4,7 +4,7 @@
 // and periodic data refresh for cross-platform sync.
 // ============================================================================
 
-import { getSupabaseClient } from '@vaultsync/core';
+import { getSupabaseClient, base64ToUint8Array, encryptObject, decryptObject } from '@vaultsync/core';
 
 // Initialize Supabase client
 const supabase = getSupabaseClient(
@@ -105,6 +105,14 @@ async function handleMessage(
       return updateCredentials(creds);
     }
 
+    case 'UPDATE_CREDENTIAL_BY_ID': {
+      const payload = message.payload as {
+        id: string; username: string; password: string; domain: string; url: string; title: string;
+      };
+      if (sender.tab?.id) pendingCredentialsMap.delete(sender.tab.id);
+      return updateCredentialById(payload);
+    }
+
     case 'SYNC_BOOKMARKS': {
       return syncBrowserBookmarks();
     }
@@ -117,8 +125,8 @@ async function handleMessage(
     case 'STORE_VAULT_KEY': {
       const { keyBase64, salt } = message.payload as { keyBase64: string; salt: string };
       await chrome.storage.session.set({ vaultKey: keyBase64, vaultSalt: salt });
-      // Record the login timestamp for session timeout tracking
-      await chrome.storage.local.set({ loginTimestamp: Date.now() });
+      // Record the last activity timestamp for session timeout tracking
+      await chrome.storage.local.set({ lastActivityTimestamp: Date.now() });
       return { success: true };
     }
 
@@ -129,7 +137,7 @@ async function handleMessage(
 
     case 'CLEAR_VAULT_KEY': {
       await chrome.storage.session.remove(['vaultKey', 'vaultSalt']);
-      await chrome.storage.local.remove(['loginTimestamp']);
+      await chrome.storage.local.remove(['lastActivityTimestamp']);
       return { success: true };
     }
 
@@ -143,6 +151,11 @@ async function handleMessage(
     case 'GET_SESSION_TIMEOUT': {
       const result = await chrome.storage.local.get(['sessionTimeout']);
       return { timeout: result.sessionTimeout || 'always' };
+    }
+
+    case 'UPDATE_ACTIVITY_TIMESTAMP': {
+      await chrome.storage.local.set({ lastActivityTimestamp: Date.now() });
+      return { success: true };
     }
 
     case 'CHECK_SESSION_EXPIRED': {
@@ -199,19 +212,14 @@ async function checkCredentialsExist(domain: string, username: string, newPasswo
       return { exists: false, passwordChanged: false };
     }
 
-    const keyBytes = Uint8Array.from(atob(keyResult.vaultKey), (c: string) => c.charCodeAt(0));
-    const cryptoKey = await crypto.subtle.importKey(
-      'raw', keyBytes, { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']
-    );
+    const keyBytes = base64ToUint8Array(keyResult.vaultKey);
 
     for (const item of data) {
       try {
-        const ciphertext = Uint8Array.from(atob(item.encrypted_data), (c: string) => c.charCodeAt(0));
-        const iv = Uint8Array.from(atob(item.iv), (c: string) => c.charCodeAt(0));
-        const decryptedBuffer = await crypto.subtle.decrypt(
-          { name: 'AES-GCM', iv }, cryptoKey, ciphertext
+        const decrypted = await decryptObject<{ username: string; password: string }>(
+          { ciphertext: item.encrypted_data, iv: item.iv },
+          keyBytes
         );
-        const decrypted = JSON.parse(new TextDecoder().decode(decryptedBuffer));
 
         if (decrypted.username === username) {
           // Found a matching username — compare passwords
@@ -241,10 +249,7 @@ async function saveCredentials(creds: {
     const keyResult = await chrome.storage.session.get(['vaultKey']);
     if (!keyResult.vaultKey) throw new Error('Vault locked');
 
-    const keyBytes = Uint8Array.from(atob(keyResult.vaultKey), (c: string) => c.charCodeAt(0));
-    const cryptoKey = await crypto.subtle.importKey(
-      'raw', keyBytes, { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']
-    );
+    const keyBytes = base64ToUint8Array(keyResult.vaultKey);
 
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Not authenticated');
@@ -257,17 +262,12 @@ async function saveCredentials(creds: {
       notes: '',
     };
 
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const encoded = new TextEncoder().encode(JSON.stringify(payload));
-    const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, cryptoKey, encoded);
-
-    const ciphertextBase64 = btoa(String.fromCharCode(...new Uint8Array(encrypted)));
-    const ivBase64 = btoa(String.fromCharCode(...iv));
+    const encrypted = await encryptObject(payload, keyBytes);
 
     const { error } = await supabase.from('vault_items').insert({
       user_id: user.id,
-      encrypted_data: ciphertextBase64,
-      iv: ivBase64,
+      encrypted_data: encrypted.ciphertext,
+      iv: encrypted.iv,
       domain: creds.domain,
       favicon_url: `https://www.google.com/s2/favicons?domain=${creds.domain}&sz=64`,
       is_favorite: false,
@@ -289,10 +289,7 @@ async function updateCredentials(creds: {
     const keyResult = await chrome.storage.session.get(['vaultKey']);
     if (!keyResult.vaultKey) throw new Error('Vault locked');
 
-    const keyBytes = Uint8Array.from(atob(keyResult.vaultKey), (c: string) => c.charCodeAt(0));
-    const cryptoKey = await crypto.subtle.importKey(
-      'raw', keyBytes, { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']
-    );
+    const keyBytes = base64ToUint8Array(keyResult.vaultKey);
 
     // Find the existing item for this domain
     const { data: items } = await supabase
@@ -309,10 +306,10 @@ async function updateCredentials(creds: {
     let targetId = items[0].id;
     for (const item of items) {
       try {
-        const ct = Uint8Array.from(atob(item.encrypted_data), (c: string) => c.charCodeAt(0));
-        const existingIv = Uint8Array.from(atob(item.iv), (c: string) => c.charCodeAt(0));
-        const buf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: existingIv }, cryptoKey, ct);
-        const dec = JSON.parse(new TextDecoder().decode(buf));
+        const dec = await decryptObject<{ username: string }>(
+          { ciphertext: item.encrypted_data, iv: item.iv },
+          keyBytes
+        );
         if (dec.username === creds.username) {
           targetId = item.id;
           break;
@@ -329,18 +326,13 @@ async function updateCredentials(creds: {
       notes: '',
     };
 
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const encoded = new TextEncoder().encode(JSON.stringify(payload));
-    const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, cryptoKey, encoded);
-
-    const ciphertextBase64 = btoa(String.fromCharCode(...new Uint8Array(encrypted)));
-    const ivBase64 = btoa(String.fromCharCode(...iv));
+    const encrypted = await encryptObject(payload, keyBytes);
 
     const { error } = await supabase
       .from('vault_items')
       .update({
-        encrypted_data: ciphertextBase64,
-        iv: ivBase64,
+        encrypted_data: encrypted.ciphertext,
+        iv: encrypted.iv,
         updated_at: new Date().toISOString(),
       })
       .eq('id', targetId);
@@ -352,6 +344,68 @@ async function updateCredentials(creds: {
     return { success: false, error: String(e) };
   }
 }
+
+// ---- Update Credential By ID ----
+async function updateCredentialById(payload: {
+  id: string;
+  username: string;
+  password: string;
+  domain: string;
+  url: string;
+  title: string;
+}) {
+  try {
+    const keyResult = await chrome.storage.session.get(['vaultKey']);
+    if (!keyResult.vaultKey) throw new Error('Vault locked');
+
+    const keyBytes = base64ToUint8Array(keyResult.vaultKey);
+
+    // Fetch existing item to preserve notes/folder/favorites
+    const { data: item, error: fetchError } = await supabase
+      .from('vault_items')
+      .select('encrypted_data, iv, folder_id, is_favorite')
+      .eq('id', payload.id)
+      .single();
+
+    if (fetchError || !item) throw new Error('Item not found');
+
+    let notes = '';
+    try {
+      const dec = await decryptObject<{ notes?: string }>(
+        { ciphertext: item.encrypted_data, iv: item.iv },
+        keyBytes
+      );
+      notes = dec.notes || '';
+    } catch {}
+
+    const fullPayload = {
+      title: payload.title,
+      username: payload.username,
+      password: payload.password,
+      url: payload.url,
+      notes: notes,
+    };
+
+    const encrypted = await encryptObject(fullPayload, keyBytes);
+
+    const { error } = await supabase
+      .from('vault_items')
+      .update({
+        encrypted_data: encrypted.ciphertext,
+        iv: encrypted.iv,
+        domain: payload.domain,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', payload.id);
+
+    if (error) throw error;
+    return { success: true };
+  } catch (e) {
+    console.error('[VaultSync SW] Update by ID failed:', e);
+    return { success: false, error: String(e) };
+  }
+}
+
 
 // ---- Bookmark Sync ----
 async function syncBrowserBookmarks() {
@@ -406,17 +460,17 @@ const TIMEOUT_DURATIONS: Record<string, number> = {
 };
 
 async function isSessionExpired(): Promise<boolean> {
-  const result = await chrome.storage.local.get(['sessionTimeout', 'loginTimestamp']);
+  const result = await chrome.storage.local.get(['sessionTimeout', 'lastActivityTimestamp']);
   const timeout = result.sessionTimeout || 'always';
   if (timeout === 'always') return false;
 
-  const loginTimestamp = result.loginTimestamp;
-  if (!loginTimestamp) return true; // No timestamp recorded — treat as expired
+  const lastActivityTimestamp = result.lastActivityTimestamp;
+  if (!lastActivityTimestamp) return true; // No timestamp recorded — treat as expired
 
   const durationMs = TIMEOUT_DURATIONS[timeout] || 0;
   if (durationMs === 0) return false;
 
-  return Date.now() - loginTimestamp > durationMs;
+  return Date.now() - lastActivityTimestamp > durationMs;
 }
 
 // ---- Periodic Data Refresh (15-second sync alarm) ----
@@ -453,7 +507,7 @@ chrome.alarms.onAlarm.addListener(async (alarm: any) => {
         if (keyResult.vaultKey) {
           console.log('[VaultSync] Session timeout expired — clearing vault key');
           await chrome.storage.session.remove(['vaultKey', 'vaultSalt']);
-          await chrome.storage.local.remove(['loginTimestamp']);
+          await chrome.storage.local.remove(['lastActivityTimestamp']);
           // Notify side panels to show the login screen
           chrome.runtime.sendMessage({ type: 'SESSION_EXPIRED' }).catch(() => {});
         }

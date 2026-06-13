@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Shield, Key, Search, Star, Copy, Eye, EyeOff,
   ExternalLink, Bookmark, Plus, RefreshCw, Check,
-  Settings, LogOut, ChevronRight, Lock, Loader2, X, Clock
+  Settings, LogOut, ChevronRight, Lock, Loader2, X, Clock, Edit3
 } from 'lucide-react';
 import {
   signIn, getVaultItems, syncBookmarks, createVaultItem, getBookmarks,
@@ -10,251 +10,8 @@ import {
   renameBookmarkFolder, deleteBookmarkFolder, buildBookmarkFolderTree,
   type DecryptedFolder, type BookmarkFolderNode
 } from '@vaultsync/core';
+import { getThemeStyles } from './styles';
 
-// Inline styles for the floating side panel
-const s = {
-  panel: {
-    height: '100vh',
-    display: 'flex',
-    flexDirection: 'column' as const,
-    background: 'linear-gradient(160deg, #0a0f1e, #111827)',
-    fontFamily: "'Inter', -apple-system, sans-serif",
-    overflow: 'hidden',
-  },
-  header: {
-    padding: '16px 16px 12px',
-    background: 'linear-gradient(135deg, rgba(92,224,214,0.08), rgba(167,139,250,0.05))',
-    borderBottom: '1px solid rgba(255,255,255,0.06)',
-  },
-  headerRow: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' },
-  logo: {
-    width: 28, height: 28, borderRadius: 8,
-    background: 'linear-gradient(135deg, #5ce0d6, #a78bfa)',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-  },
-  title: { fontSize: '15px', fontWeight: 700, color: '#f2f2f2', flex: 1 },
-  searchInput: {
-    width: '100%', height: 36, padding: '0 12px 0 34px',
-    background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)',
-    borderRadius: 10, color: '#f2f2f2', fontSize: '13px', outline: 'none',
-    fontFamily: 'inherit', boxSizing: 'border-box' as const,
-  },
-  content: {
-    flex: 1, overflow: 'auto', padding: '12px',
-    display: 'flex', flexDirection: 'column' as const, gap: '8px',
-  },
-  itemCard: {
-    padding: '12px', borderRadius: 10,
-    background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)',
-    cursor: 'pointer', transition: 'all 0.15s ease',
-    display: 'flex', alignItems: 'center', gap: '10px',
-  },
-  favicon: {
-    width: 32, height: 32, borderRadius: 8,
-    background: 'rgba(255,255,255,0.06)',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    flexShrink: 0, overflow: 'hidden',
-  },
-  itemInfo: { flex: 1, minWidth: 0 },
-  itemTitle: { fontSize: '13px', fontWeight: 600, color: '#f2f2f2', whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis' },
-  itemSub: { fontSize: '11px', color: '#8a8f9e', whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis' },
-  iconBtn: {
-    background: 'none', border: 'none', cursor: 'pointer', padding: 4,
-    color: '#8a8f9e', display: 'flex', borderRadius: 6,
-  },
-  sectionLabel: {
-    fontSize: '10px', fontWeight: 700, textTransform: 'uppercase' as const,
-    letterSpacing: '0.1em', color: '#4a5068', padding: '8px 4px 4px',
-  },
-  statsBar: {
-    display: 'flex', gap: '6px', padding: '0 16px 12px',
-  },
-  statPill: {
-    flex: 1, padding: '10px', borderRadius: 10,
-    background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)',
-    textAlign: 'center' as const,
-  },
-  statNumber: { fontSize: '18px', fontWeight: 800 },
-  statLabel: { fontSize: '9px', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.05em', color: '#8a8f9e', marginTop: 2 },
-  tabBar: {
-    display: 'flex', padding: '8px 12px',
-    borderTop: '1px solid rgba(255,255,255,0.06)',
-    background: '#0a0f1e', gap: '4px',
-  },
-  tab: {
-    flex: 1, padding: '8px 0', borderRadius: 8,
-    display: 'flex', flexDirection: 'column' as const, alignItems: 'center', gap: '4px',
-    background: 'none', border: 'none', cursor: 'pointer',
-    fontSize: '10px', fontWeight: 600, fontFamily: 'inherit',
-  },
-  authContainer: {
-    flex: 1, display: 'flex', flexDirection: 'column' as const,
-    alignItems: 'center', justifyContent: 'center', padding: '24px', gap: '16px',
-  },
-  authInput: {
-    width: '100%', height: 44, padding: '0 14px',
-    background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)',
-    borderRadius: 10, color: '#f2f2f2', fontSize: '14px', outline: 'none',
-    fontFamily: 'inherit', boxSizing: 'border-box' as const,
-  },
-  authBtn: {
-    width: '100%', height: 44, borderRadius: 10, border: 'none',
-    background: 'linear-gradient(135deg, #5ce0d6, #a78bfa)',
-    color: '#0a0f1e', fontSize: '14px', fontWeight: 700, cursor: 'pointer',
-    fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
-  },
-};
-
-const fStyles = {
-  section: {
-    display: 'flex',
-    flexDirection: 'column' as const,
-    gap: '6px',
-    marginBottom: '10px',
-  },
-  header: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: '0 4px',
-    color: '#8a8f9e',
-    fontSize: '11px',
-    fontWeight: 700,
-    textTransform: 'uppercase' as const,
-    letterSpacing: '0.05em',
-  },
-  card: {
-    border: '1px solid rgba(255, 255, 255, 0.08)',
-    borderRadius: '8px',
-    background: 'rgba(255, 255, 255, 0.02)',
-    overflow: 'hidden',
-    display: 'flex',
-    flexDirection: 'column' as const,
-    maxHeight: '180px',
-    overflowY: 'auto' as const,
-  },
-  row: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-    padding: '8px 12px',
-    color: '#8a8f9e',
-    fontSize: '12px',
-    fontWeight: 500,
-    cursor: 'pointer',
-    borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
-    userSelect: 'none' as const,
-    transition: 'all 0.1s ease',
-  },
-  activeRow: {
-    background: 'rgba(92, 224, 214, 0.08)',
-    color: '#5ce0d6',
-    fontWeight: 600,
-  },
-  actions: {
-    display: 'flex',
-    marginLeft: 'auto',
-    gap: '4px',
-  },
-  actionBtn: {
-    background: 'none',
-    border: 'none',
-    cursor: 'pointer',
-    padding: '2px',
-    color: '#8a8f9e',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  filterBadge: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: '6px 12px',
-    borderRadius: '8px',
-    background: 'rgba(92, 224, 214, 0.1)',
-    border: '1px solid rgba(92, 224, 214, 0.2)',
-    color: '#5ce0d6',
-    fontSize: '12px',
-    marginBottom: '10px',
-  }
-};
-
-const mStyles = {
-  overlay: {
-    position: 'fixed' as const,
-    top: 0, left: 0, right: 0, bottom: 0,
-    background: 'rgba(5, 8, 16, 0.85)',
-    backdropFilter: 'blur(4px)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 10000,
-    padding: '16px',
-  },
-  modal: {
-    width: '100%',
-    maxWidth: '320px',
-    background: '#0d1527',
-    border: '1px solid rgba(255, 255, 255, 0.1)',
-    borderRadius: '12px',
-    padding: '16px',
-    boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
-    display: 'flex',
-    flexDirection: 'column' as const,
-    gap: '12px',
-  },
-  header: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  title: {
-    fontSize: '14px',
-    fontWeight: 700,
-    color: '#f2f2f2',
-  },
-  closeBtn: {
-    background: 'none',
-    border: 'none',
-    color: '#8a8f9e',
-    cursor: 'pointer',
-    padding: '4px',
-    display: 'flex',
-  },
-  form: {
-    display: 'flex',
-    flexDirection: 'column' as const,
-    gap: '12px',
-  },
-  buttons: {
-    display: 'flex',
-    justifyContent: 'flex-end',
-    gap: '8px',
-  },
-  cancelBtn: {
-    padding: '8px 16px',
-    borderRadius: '8px',
-    border: '1px solid rgba(255, 255, 255, 0.08)',
-    background: 'rgba(255, 255, 255, 0.04)',
-    color: '#8a8f9e',
-    fontSize: '12px',
-    fontWeight: 600,
-    cursor: 'pointer',
-    fontFamily: 'inherit',
-  },
-  saveBtn: {
-    padding: '8px 16px',
-    borderRadius: '8px',
-    border: 'none',
-    background: 'linear-gradient(135deg, #5ce0d6, #a78bfa)',
-    color: '#0a0f1e',
-    fontSize: '12px',
-    fontWeight: 700,
-    cursor: 'pointer',
-    fontFamily: 'inherit',
-  },
-};
 
 // Helper: get favicon URL for a domain
 function getFaviconUrl(domain: string): string {
@@ -269,6 +26,8 @@ interface VaultEntry {
   username: string;
   domain: string;
   favicon?: string;
+  folderId?: string | null;
+  passwordDecrypted: string;
 }
 
 interface BookmarkEntry {
@@ -315,7 +74,19 @@ export function SidePanel() {
   const [showBookmarkFolderModal, setShowBookmarkFolderModal] = useState<'add' | 'rename' | null>(null);
   const [bookmarkOldPath, setBookmarkOldPath] = useState('');
   const [bookmarkNewPath, setBookmarkNewPath] = useState('');
-  const [vaultKey, setVaultKey] = useState<CryptoKey | null>(null);
+  
+  // Theme and search and modal states
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    const saved = localStorage.getItem('vaultsync-theme');
+    return (saved === 'light' || saved === 'dark') ? saved : 'dark';
+  });
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState<VaultEntry | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editForm, setEditForm] = useState({ title: '', username: '', password: '', domain: '' });
+  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
+
+  const [vaultKey, setVaultKey] = useState<Uint8Array | null>(null);
   const [currentDomain, setCurrentDomain] = useState<string>('');
   const [currentUrl, setCurrentUrl] = useState<string>('');
   const [isAdding, setIsAdding] = useState(false);
@@ -324,6 +95,8 @@ export function SidePanel() {
   const [syncing, setSyncing] = useState(false);
   const [sessionTimeout, setSessionTimeout] = useState<string>('always');
   const refreshIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const { s, fStyles, mStyles, isDark, c } = getThemeStyles(theme);
 
   // -- Load session timeout preference on mount --
   useEffect(() => {
@@ -403,8 +176,7 @@ export function SidePanel() {
               const binary = atob(keyData.vaultKey);
               const bytes = new Uint8Array(binary.length);
               for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-              const key = await crypto.subtle.importKey('raw', bytes, { name: 'AES-GCM' }, true, ['encrypt', 'decrypt']);
-              setVaultKey(key);
+              setVaultKey(bytes);
               setIsAuthed(true);
             } else {
               // Session exists but vault key was lost (browser restart).
@@ -421,7 +193,7 @@ export function SidePanel() {
   }, []);
 
   // -- Data loading function --
-  const loadAllData = useCallback(async (key: CryptoKey) => {
+  const loadAllData = useCallback(async (key: Uint8Array) => {
     try {
       const [items, bmarks, userFolders] = await Promise.all([
         getVaultItems(key),
@@ -441,6 +213,7 @@ export function SidePanel() {
           domain,
           favicon: i.favicon_url || (domain ? getFaviconUrl(domain) : undefined),
           folderId: i.folder_id,
+          passwordDecrypted: i.decrypted.password,
         };
       }));
 
@@ -720,8 +493,7 @@ export function SidePanel() {
     try {
       const { vaultKey: material } = await signIn({ email, masterPassword: password });
 
-      const exported = await crypto.subtle.exportKey('raw', material.key);
-      const keyBase64 = btoa(String.fromCharCode(...new Uint8Array(exported)));
+      const keyBase64 = btoa(String.fromCharCode(...material.key));
 
       await chrome.runtime.sendMessage({
         type: 'STORE_VAULT_KEY',
@@ -737,6 +509,45 @@ export function SidePanel() {
       setLoading(false);
     }
   };
+
+  const handleEditSave = async () => {
+    if (!editingItem || !vaultKey) return;
+    setLoading(true);
+    try {
+      const resp = await chrome.runtime.sendMessage({
+        type: 'UPDATE_CREDENTIAL_BY_ID',
+        payload: {
+          id: editingItem.id,
+          username: editForm.username,
+          password: editForm.password,
+          domain: editForm.domain,
+          url: editForm.domain,
+          title: editForm.title
+        }
+      });
+      if (resp.error) throw new Error(resp.error);
+      setEditingItem(null);
+      setIsEditing(false);
+      await loadAllData(vaultKey);
+    } catch (e) {
+      alert('Failed to save edits: ' + e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEditOpen = (item: VaultEntry, passwordDecrypted: string) => {
+    setEditingItem(item);
+    setEditForm({
+      title: item.title,
+      username: item.username,
+      password: passwordDecrypted,
+      domain: item.domain
+    });
+    setIsEditing(false);
+    setIsPasswordVisible(false);
+  };
+
 
   const handleAdd = async () => {
     if (!vaultKey) return;
@@ -880,50 +691,60 @@ export function SidePanel() {
     <div style={s.panel}>
       {/* Header */}
       <div style={s.header}>
-        <div style={s.headerRow}>
-          <div style={s.logo}>
-            <Shield size={14} color="white" />
-          </div>
-          <span style={s.title}>VaultSync</span>
-          <button
-            style={{ ...s.iconBtn, color: '#5ce0d6', marginRight: 6 }}
-            title="Open Web Dashboard"
-            onClick={() => typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.create({ url: 'https://vaultsync-passwords.netlify.app/vault' })}
-          >
-            <ExternalLink size={14} />
-          </button>
-          <button
-            style={{ ...s.iconBtn, animation: syncing ? 'spin 1s linear infinite' : 'none' }}
-            title="Refresh vault"
-            onClick={() => vaultKey && loadAllData(vaultKey)}
-          >
-            <RefreshCw size={14} />
-          </button>
-        </div>
-        <div style={{ position: 'relative' }}>
-          <Search size={14} style={{ position: 'absolute', left: 10, top: 11, color: '#4a5068' }} />
-          <input
-            style={s.searchInput}
-            placeholder={tab === 'bookmarks' ? 'Search bookmarks...' : 'Search vault...'}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
-      </div>
-
-      {/* Stats */}
-      <div style={s.statsBar}>
-        <div style={s.statPill}>
-          <div style={{ ...s.statNumber, color: '#5ce0d6' }}>{vaultItems.length || '—'}</div>
-          <div style={s.statLabel}>Passwords</div>
-        </div>
-        <div style={s.statPill}>
-          <div style={{ ...s.statNumber, color: '#a78bfa' }}>{bookmarks.length || '—'}</div>
-          <div style={s.statLabel}>Bookmarks</div>
-        </div>
-        <div style={s.statPill}>
-          <div style={{ ...s.statNumber, color: '#22c55e' }}>256</div>
-          <div style={s.statLabel}>AES Bits</div>
+        <div style={{ ...s.headerRow, marginBottom: 0, justifyContent: 'space-between', position: 'relative', height: 28, alignItems: 'center' }}>
+          {!isSearchOpen ? (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={s.logo}><Shield size={14} color="white" /></div>
+                <span style={s.title}>VaultSync</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <button
+                  style={s.iconBtn}
+                  onClick={() => setIsSearchOpen(true)}
+                  title="Search"
+                >
+                  <Search size={14} />
+                </button>
+                <button
+                  style={{ ...s.iconBtn, color: c.accent }}
+                  title="Open Web Dashboard"
+                  onClick={() => typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.create({ url: 'https://vaultsync-passwords.netlify.app/vault' })}
+                >
+                  <ExternalLink size={14} />
+                </button>
+                <button
+                  style={{ ...s.iconBtn, animation: syncing ? 'spin 1s linear infinite' : 'none' }}
+                  title="Refresh vault"
+                  onClick={() => vaultKey && loadAllData(vaultKey)}
+                >
+                  <RefreshCw size={14} />
+                </button>
+              </div>
+            </>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: '8px', animation: 'fadeIn 0.2s ease-out' }}>
+              <div style={{ position: 'relative', flex: 1 }}>
+                <Search size={14} style={{ position: 'absolute', left: 10, top: 11, color: c.textSub }} />
+                <input
+                  style={{ ...s.searchInput, width: '100%', paddingLeft: 34 }}
+                  placeholder={tab === 'bookmarks' ? 'Search bookmarks...' : 'Search vault...'}
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              <button
+                style={{ ...s.iconBtn, color: '#ef4444' }}
+                onClick={() => {
+                  setIsSearchOpen(false);
+                  setSearch('');
+                }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -980,7 +801,12 @@ export function SidePanel() {
                   <>
                     {domainItems.length > 0 ? (
                       domainItems.map(item => (
-                        <div key={item.id} style={{ ...s.itemCard, border: '1px solid rgba(92,224,214,0.15)', background: 'rgba(92,224,214,0.04)' }}>
+                        <div
+                          key={item.id}
+                          className="premium-card"
+                          style={{ ...s.itemCard, border: `1px solid ${c.accent}33`, background: `${c.accent}0A` }}
+                          onClick={() => handleEditOpen(item, item.passwordDecrypted)}
+                        >
                           <div style={s.favicon}>
                             <img src={getFaviconUrl(currentDomain)} width={20} height={20} alt="" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
                           </div>
@@ -990,7 +816,7 @@ export function SidePanel() {
                           </div>
                           <button
                             style={{ ...s.iconBtn, color: copiedId === item.id ? '#22c55e' : '#8a8f9e' }}
-                            onClick={() => handleCopy(item.username, item.id)}
+                            onClick={(e) => { e.stopPropagation(); handleCopy(item.username, item.id); }}
                           >
                             {copiedId === item.id ? <Check size={14} /> : <Copy size={14} />}
                           </button>
@@ -1019,7 +845,12 @@ export function SidePanel() {
               </div>
             ) : (
               otherItems.map((item) => (
-                <div key={item.id} style={s.itemCard}>
+                <div
+                  key={item.id}
+                  className="premium-card"
+                  style={s.itemCard}
+                  onClick={() => handleEditOpen(item, item.passwordDecrypted)}
+                >
                   <div style={s.favicon}>
                     {item.domain ? (
                       <img src={getFaviconUrl(item.domain)} width={20} height={20} alt="" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
@@ -1033,7 +864,7 @@ export function SidePanel() {
                   </div>
                   <button
                     style={{ ...s.iconBtn, color: copiedId === item.id ? '#22c55e' : '#8a8f9e' }}
-                    onClick={() => handleCopy(item.username, item.id)}
+                    onClick={(e) => { e.stopPropagation(); handleCopy(item.username, item.id); }}
                   >
                     {copiedId === item.id ? <Check size={14} /> : <Copy size={14} />}
                   </button>
@@ -1152,6 +983,52 @@ export function SidePanel() {
 
         {tab === 'settings' && (
           <>
+            {/* Stats */}
+            <div style={s.statsBar}>
+              <div style={s.statPill}>
+                <div style={{ ...s.statNumber, color: c.accent }}>{vaultItems.length || '—'}</div>
+                <div style={s.statLabel}>Passwords</div>
+              </div>
+              <div style={s.statPill}>
+                <div style={{ ...s.statNumber, color: c.accent2 }}>{bookmarks.length || '—'}</div>
+                <div style={s.statLabel}>Bookmarks</div>
+              </div>
+              <div style={s.statPill}>
+                <div style={{ ...s.statNumber, color: '#22c55e' }}>256</div>
+                <div style={s.statLabel}>AES Bits</div>
+              </div>
+            </div>
+
+            {/* Appearance */}
+            <div style={s.sectionLabel}>Appearance</div>
+            <div style={{ ...s.itemCard, justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={s.itemInfo}>
+                <div style={s.itemTitle}>Theme</div>
+                <div style={s.itemSub}>{theme === 'dark' ? 'Dark Mode' : 'Light Mode'}</div>
+              </div>
+              <button
+                className="premium-btn"
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: '8px',
+                  background: c.inputBg,
+                  border: `1px solid ${c.cardBorder}`,
+                  color: c.textMain,
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                }}
+                onClick={() => {
+                  const n = theme === 'dark' ? 'light' : 'dark';
+                  setTheme(n);
+                  localStorage.setItem('vaultsync-theme', n);
+                }}
+              >
+                Toggle Theme
+              </button>
+            </div>
+
             <div style={s.sectionLabel}>Security</div>
             <div style={s.itemCard}>
               <div style={s.itemInfo}>
@@ -1346,6 +1223,208 @@ export function SidePanel() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* View/Edit Card Modal */}
+      {editingItem && (
+        <div style={mStyles.overlay} className="modal-overlay">
+          <div style={{ ...mStyles.modal, maxWidth: '340px' }} className="modal-content">
+            <div style={mStyles.header}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{
+                  width: 32, height: 32, borderRadius: 8,
+                  background: 'rgba(255,255,255,0.06)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  overflow: 'hidden'
+                }}>
+                  {editForm.domain ? (
+                    <img src={getFaviconUrl(editForm.domain)} width={20} height={20} alt="" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                  ) : (
+                    <Key size={16} color={c.accent} />
+                  )}
+                </div>
+                <span style={{ ...mStyles.title, fontSize: '15px', fontWeight: 700 }}>
+                  {isEditing ? 'Edit Item' : 'Item Details'}
+                </span>
+              </div>
+              <button style={mStyles.closeBtn} onClick={() => { setEditingItem(null); setIsEditing(false); }}><X size={18} /></button>
+            </div>
+            
+            <div style={{ ...mStyles.form, marginTop: 8 }}>
+              {/* Title Field */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <span style={{ fontSize: '10px', color: c.textSub, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Title</span>
+                <input
+                  style={{
+                    ...s.authInput,
+                    background: isEditing ? c.inputBg : 'transparent',
+                    border: isEditing ? `1px solid ${c.inputBorder}` : 'none',
+                    padding: isEditing ? '0 12px' : '0 4px',
+                    height: isEditing ? 38 : 28,
+                    fontSize: '13px',
+                    fontWeight: isEditing ? 500 : 600,
+                    color: c.textMain
+                  }}
+                  value={editForm.title}
+                  onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
+                  readOnly={!isEditing}
+                />
+              </div>
+
+              {/* Username Field */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <span style={{ fontSize: '10px', color: c.textSub, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Username / Email</span>
+                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                  <input
+                    style={{
+                      ...s.authInput,
+                      background: isEditing ? c.inputBg : 'transparent',
+                      border: isEditing ? `1px solid ${c.inputBorder}` : 'none',
+                      padding: isEditing ? '0 12px' : '0 4px',
+                      paddingRight: isEditing ? 12 : 40,
+                      height: isEditing ? 38 : 28,
+                      fontSize: '13px',
+                      width: '100%',
+                      color: c.textMain
+                    }}
+                    value={editForm.username}
+                    onChange={(e) => setEditForm({ ...editForm, username: e.target.value })}
+                    readOnly={!isEditing}
+                  />
+                  {!isEditing && (
+                    <button
+                      className="premium-btn"
+                      style={{
+                        position: 'absolute', right: 4, background: 'rgba(255,255,255,0.06)',
+                        border: 'none', borderRadius: '6px', color: c.accent, padding: '4px 8px',
+                        fontSize: '10px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit'
+                      }}
+                      onClick={() => handleCopy(editForm.username, 'usr')}
+                    >
+                      Copy
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Password Field */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <span style={{ fontSize: '10px', color: c.textSub, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Password</span>
+                <div style={{ position: 'relative', display: 'flex', alignItems: 'center', width: '100%' }}>
+                  <input
+                    style={{
+                      ...s.authInput,
+                      background: isEditing ? c.inputBg : 'transparent',
+                      border: isEditing ? `1px solid ${c.inputBorder}` : 'none',
+                      padding: isEditing ? '0 12px' : '0 4px',
+                      paddingRight: isEditing ? 40 : 76,
+                      height: isEditing ? 38 : 28,
+                      fontSize: '13px',
+                      fontFamily: (!isEditing && !isPasswordVisible) ? 'monospace' : 'inherit',
+                      width: '100%',
+                      color: c.textMain
+                    }}
+                    type={(isEditing || isPasswordVisible) ? 'text' : 'password'}
+                    value={editForm.password}
+                    onChange={(e) => setEditForm({ ...editForm, password: e.target.value })}
+                    readOnly={!isEditing}
+                  />
+                  <div style={{ position: 'absolute', right: 4, display: 'flex', gap: '4px' }}>
+                    <button
+                      style={{
+                        background: 'none', border: 'none', cursor: 'pointer', padding: 4,
+                        color: c.textSub, display: 'flex', borderRadius: 4
+                      }}
+                      onClick={() => setIsPasswordVisible(!isPasswordVisible)}
+                      title={isPasswordVisible ? 'Hide Password' : 'Show Password'}
+                    >
+                      {isPasswordVisible ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+                    {!isEditing && (
+                      <button
+                        className="premium-btn"
+                        style={{
+                          background: 'rgba(255,255,255,0.06)',
+                          border: 'none', borderRadius: '6px', color: c.accent, padding: '4px 8px',
+                          fontSize: '10px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit'
+                        }}
+                        onClick={() => handleCopy(editForm.password, 'pwd')}
+                      >
+                        Copy
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Domain Field */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <span style={{ fontSize: '10px', color: c.textSub, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Domain</span>
+                <input
+                  style={{
+                    ...s.authInput,
+                    background: isEditing ? c.inputBg : 'transparent',
+                    border: isEditing ? `1px solid ${c.inputBorder}` : 'none',
+                    padding: isEditing ? '0 12px' : '0 4px',
+                    height: isEditing ? 38 : 28,
+                    fontSize: '13px',
+                    color: c.textMain
+                  }}
+                  value={editForm.domain}
+                  onChange={(e) => setEditForm({ ...editForm, domain: e.target.value })}
+                  readOnly={!isEditing}
+                />
+              </div>
+
+              {/* Action Buttons */}
+              <div style={{ ...mStyles.buttons, marginTop: 14 }}>
+                {!isEditing ? (
+                  <>
+                    <button
+                      type="button"
+                      className="premium-btn"
+                      style={mStyles.cancelBtn}
+                      onClick={() => { setEditingItem(null); setIsEditing(false); }}
+                    >
+                      Close
+                    </button>
+                    <button
+                      type="button"
+                      className="premium-btn"
+                      style={{
+                        ...mStyles.saveBtn,
+                        display: 'flex', alignItems: 'center', gap: '6px'
+                      }}
+                      onClick={() => setIsEditing(true)}
+                    >
+                      <Edit3 size={13} /> Edit
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      className="premium-btn"
+                      style={mStyles.cancelBtn}
+                      onClick={() => setIsEditing(false)}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="premium-btn"
+                      style={mStyles.saveBtn}
+                      onClick={handleEditSave}
+                      disabled={loading}
+                    >
+                      {loading ? 'Saving...' : 'Save Changes'}
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}
