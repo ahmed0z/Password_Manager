@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Bookmark, ExternalLink, Trash2, Search, RefreshCw, Grid, List, Edit, Loader2 } from 'lucide-react';
-import { getBookmarks, deleteBookmark, updateBookmark, type Bookmark as BookmarkType, type DecryptedBookmark } from '@vaultsync/core';
+import { getBookmarks, deleteBookmark, updateBookmark, type Bookmark as BookmarkType, type DecryptedBookmark, base64ToUint8Array } from '@vaultsync/core';
 
 function BookmarksContent() {
   const searchParams = useSearchParams();
@@ -15,11 +15,10 @@ function BookmarksContent() {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [editingBookmark, setEditingBookmark] = useState<(BookmarkType & { decrypted: DecryptedBookmark }) | null>(null);
 
-  const getVaultKey = useCallback(async (): Promise<CryptoKey | null> => {
-    const keyBase64 = sessionStorage.getItem('vaultsync-vault-key');
+  const getVaultKey = useCallback(async (): Promise<Uint8Array | null> => {
+    const keyBase64 = localStorage.getItem('vaultsync-vault-key');
     if (!keyBase64) return null;
-    const keyBytes = Uint8Array.from(atob(keyBase64), (c) => c.charCodeAt(0));
-    return crypto.subtle.importKey('raw', keyBytes, { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+    return base64ToUint8Array(keyBase64);
   }, []);
 
   const loadBookmarks = useCallback(async () => {
@@ -209,7 +208,7 @@ function EditBookmarkModal({
   bookmark: BookmarkType & { decrypted: DecryptedBookmark };
   onClose: () => void;
   onSaved: () => void;
-  getVaultKey: () => Promise<CryptoKey | null>;
+  getVaultKey: () => Promise<Uint8Array | null>;
 }) {
   const [title, setTitle] = useState(bookmark.decrypted.title);
   const [url, setUrl] = useState(bookmark.decrypted.url);

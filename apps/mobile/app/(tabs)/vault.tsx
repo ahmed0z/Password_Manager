@@ -7,7 +7,7 @@ import { useRouter } from 'expo-router';
 import {
   getVaultItems, type VaultItem, type DecryptedVaultItem,
   getFolders, buildFolderTree, createFolder, renameFolder, deleteFolder,
-  type DecryptedFolder
+  type DecryptedFolder, base64ToUint8Array
 } from '@vaultsync/core';
 import * as SecureStore from 'expo-secure-store';
 import * as Clipboard from 'expo-clipboard';
@@ -27,6 +27,22 @@ export default function VaultScreen() {
   const [folders, setFolders] = useState<DecryptedFolder[]>([]);
   const [folderTree, setFolderTree] = useState<DecryptedFolder[]>([]);
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
+
+  useEffect(() => {
+    SecureStore.getItemAsync('vaultsync-vault-search').then(val => { if (val) setSearch(val); });
+    SecureStore.getItemAsync('vaultsync-vault-folder').then(val => { if (val) setSelectedFolderId(val); });
+  }, []);
+
+  const updateSearch = (val: string) => {
+    setSearch(val);
+    SecureStore.setItemAsync('vaultsync-vault-search', val);
+  };
+
+  const updateFolder = (val: string | null) => {
+    setSelectedFolderId(val);
+    if (val) SecureStore.setItemAsync('vaultsync-vault-folder', val);
+    else SecureStore.deleteItemAsync('vaultsync-vault-folder');
+  };
   const [isFoldersCollapsed, setIsFoldersCollapsed] = useState(true);
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
 
@@ -42,11 +58,10 @@ export default function VaultScreen() {
   const [folderRenameName, setFolderRenameName] = useState('');
   const [folderNewName, setFolderNewName] = useState('');
 
-  const getVaultKey = useCallback(async (): Promise<CryptoKey | null> => {
+  const getVaultKey = useCallback(async (): Promise<Uint8Array | null> => {
     const keyBase64 = await SecureStore.getItemAsync('vaultsync-vault-key');
     if (!keyBase64) return null;
-    const keyBytes = Uint8Array.from(atob(keyBase64), (c) => c.charCodeAt(0));
-    return crypto.subtle.importKey('raw', keyBytes, { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+    return base64ToUint8Array(keyBase64);
   }, []);
 
   const loadData = useCallback(async () => {
@@ -61,6 +76,9 @@ export default function VaultScreen() {
       setFolderTree(buildFolderTree(folderData));
     } catch (e) {
       console.error(e);
+      if (e instanceof Error && e.message === 'Not authenticated') {
+        router.replace('/(auth)/login');
+      }
     } finally {
       setLoading(false);
     }
@@ -116,7 +134,7 @@ export default function VaultScreen() {
             try {
               setLoading(true);
               await deleteFolder(id);
-              if (selectedFolderId === id) setSelectedFolderId(null);
+              if (selectedFolderId === id) updateFolder(null);
               await loadData();
             } catch (e) {
               Alert.alert('Error', 'Failed to delete folder');
@@ -180,7 +198,7 @@ export default function VaultScreen() {
             { paddingLeft: level * 16 + 12 },
             isActive && { backgroundColor: c.badgeBg }
           ]}
-          onPress={() => setSelectedFolderId(isActive ? null : folder.id)}
+          onPress={() => updateFolder(isActive ? null : folder.id)}
         >
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             {hasChildren ? (
@@ -248,7 +266,7 @@ export default function VaultScreen() {
           placeholder="Search vault..."
           placeholderTextColor={c.placeholder}
           value={search}
-          onChangeText={setSearch}
+          onChangeText={updateSearch}
         />
       </View>
 

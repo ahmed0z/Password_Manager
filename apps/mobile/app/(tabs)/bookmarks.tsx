@@ -6,13 +6,15 @@ import {
 import {
   getBookmarks, type Bookmark, type DecryptedBookmark,
   renameBookmarkFolder, deleteBookmarkFolder, buildBookmarkFolderTree,
-  type BookmarkFolderNode
+  type BookmarkFolderNode, base64ToUint8Array
 } from '@vaultsync/core';
+import { useRouter } from 'expo-router';
 import * as SecureStore from 'expo-secure-store';
 
 type BookmarkWithDecrypted = Bookmark & { decrypted: DecryptedBookmark };
 
 export default function BookmarksScreen() {
+  const router = useRouter();
   const isDark = useColorScheme() === 'dark';
   const c = isDark ? dark : light;
   const [bookmarks, setBookmarks] = useState<BookmarkWithDecrypted[]>([]);
@@ -33,11 +35,10 @@ export default function BookmarksScreen() {
   const [bookmarkOldPath, setBookmarkOldPath] = useState('');
   const [bookmarkNewPath, setBookmarkNewPath] = useState('');
 
-  const getVaultKey = useCallback(async (): Promise<CryptoKey | null> => {
+  const getVaultKey = useCallback(async (): Promise<Uint8Array | null> => {
     const keyBase64 = await SecureStore.getItemAsync('vaultsync-vault-key');
     if (!keyBase64) return null;
-    const keyBytes = Uint8Array.from(atob(keyBase64), (c) => c.charCodeAt(0));
-    return crypto.subtle.importKey('raw', keyBytes, { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+    return base64ToUint8Array(keyBase64);
   }, []);
 
   const loadData = useCallback(async () => {
@@ -61,9 +62,12 @@ export default function BookmarksScreen() {
           emptyList.forEach((p) => paths.add(p));
         } catch {}
       }
-      setBookmarkFolderTree(buildBookmarkFolderTree(Array.from(paths)));
+      setFolderTree(buildBookmarkFolderTree(Array.from(paths)));
     } catch (e) {
       console.error(e);
+      if (e instanceof Error && e.message === 'Not authenticated') {
+        router.replace('/(auth)/login');
+      }
     } finally {
       setLoading(false);
     }
@@ -272,12 +276,12 @@ export default function BookmarksScreen() {
 
         {!isFoldersCollapsed && (
           <View style={styles.folderListContainer}>
-            {bookmarkFolderTree.length === 0 ? (
+            {folderTree.length === 0 ? (
               <Text style={{ color: c.textSec, fontSize: 12, padding: 12, textAlign: 'center' }}>
                 No folders created yet.
               </Text>
             ) : (
-              bookmarkFolderTree.map((node) => renderBookmarkFolderNode(node, 0))
+              folderTree.map((node: BookmarkFolderNode) => renderBookmarkFolderNode(node, 0))
             )}
           </View>
         )}

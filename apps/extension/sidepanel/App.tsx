@@ -5,7 +5,7 @@ import {
   Settings, LogOut, ChevronRight, Lock, Loader2, X, Clock, Edit3
 } from 'lucide-react';
 import {
-  signIn, getVaultItems, syncBookmarks, createVaultItem, getBookmarks,
+  signIn, signOut, getSession, getVaultItems, syncBookmarks, createVaultItem, getBookmarks,
   getFolders, createFolder, renameFolder, deleteFolder, buildFolderTree,
   renameBookmarkFolder, deleteBookmarkFolder, buildBookmarkFolderTree,
   type DecryptedFolder, type BookmarkFolderNode
@@ -13,8 +13,27 @@ import {
 import { getThemeStyles } from './styles';
 
 
+function isLocalOrInvalidDomain(domain: string): boolean {
+  if (!domain) return true;
+  const d = domain.trim().toLowerCase();
+  if (d === 'localhost' || d.endsWith('.local') || d.endsWith('.localhost') || d.endsWith('.lan') || d.endsWith('.test')) {
+    return true;
+  }
+  if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(d)) {
+    return true;
+  }
+  if (d.includes(':')) {
+    return true;
+  }
+  if (!d.includes('.')) {
+    return true;
+  }
+  return false;
+}
+
 // Helper: get favicon URL for a domain
 function getFaviconUrl(domain: string): string {
+  if (isLocalOrInvalidDomain(domain)) return '';
   return `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
 }
 
@@ -159,7 +178,7 @@ export function SidePanel() {
   useEffect(() => {
     try {
       chrome.runtime.sendMessage({ type: 'GET_AUTH_STATE' })
-        .then(async (resp: { session: unknown }) => {
+        .then(async (resp: { session: any }) => {
           if (resp?.session) {
             // Check if session has expired based on timeout setting
             const expiryResp = await chrome.runtime.sendMessage({ type: 'CHECK_SESSION_EXPIRED' });
@@ -169,6 +188,11 @@ export function SidePanel() {
               setIsAuthed(false);
               return;
             }
+
+            // Sync session to local Supabase client instance
+            const { getSupabaseClient } = await import('@vaultsync/core');
+            const supabase = getSupabaseClient();
+            await supabase.auth.setSession(resp.session);
 
             const keyData = await chrome.runtime.sendMessage({ type: 'GET_VAULT_KEY' });
             if (keyData?.vaultKey) {
@@ -500,6 +524,12 @@ export function SidePanel() {
         payload: { keyBase64, salt: material.salt }
       });
 
+      const session = await getSession();
+      await chrome.runtime.sendMessage({
+        type: 'SYNC_SESSION',
+        payload: { session }
+      });
+
       setVaultKey(material.key);
       setIsAuthed(true);
     } catch (e) {
@@ -808,7 +838,11 @@ export function SidePanel() {
                           onClick={() => handleEditOpen(item, item.passwordDecrypted)}
                         >
                           <div style={s.favicon}>
-                            <img src={getFaviconUrl(currentDomain)} width={20} height={20} alt="" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                            {getFaviconUrl(currentDomain) ? (
+                              <img src={getFaviconUrl(currentDomain)} width={20} height={20} alt="" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                            ) : (
+                              <Key size={14} color="#8a8f9e" />
+                            )}
                           </div>
                           <div style={s.itemInfo}>
                             <div style={s.itemTitle}>{item.title}</div>
@@ -852,7 +886,7 @@ export function SidePanel() {
                   onClick={() => handleEditOpen(item, item.passwordDecrypted)}
                 >
                   <div style={s.favicon}>
-                    {item.domain ? (
+                    {item.domain && getFaviconUrl(item.domain) ? (
                       <img src={getFaviconUrl(item.domain)} width={20} height={20} alt="" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
                     ) : (
                       <Key size={14} color="#8a8f9e" />
@@ -1106,6 +1140,15 @@ export function SidePanel() {
               style={{ ...s.itemCard, border: '1px solid rgba(239,68,68,0.2)' }}
               onClick={async () => {
                 await chrome.runtime.sendMessage({ type: 'CLEAR_VAULT_KEY' });
+                try {
+                  await signOut();
+                } catch (e) {
+                  console.error(e);
+                }
+                await chrome.runtime.sendMessage({
+                  type: 'SYNC_SESSION',
+                  payload: { session: null }
+                });
                 setIsAuthed(false);
                 setVaultItems([]);
                 setBookmarks([]);
@@ -1239,7 +1282,7 @@ export function SidePanel() {
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   overflow: 'hidden'
                 }}>
-                  {editForm.domain ? (
+                  {editForm.domain && getFaviconUrl(editForm.domain) ? (
                     <img src={getFaviconUrl(editForm.domain)} width={20} height={20} alt="" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
                   ) : (
                     <Key size={16} color={c.accent} />

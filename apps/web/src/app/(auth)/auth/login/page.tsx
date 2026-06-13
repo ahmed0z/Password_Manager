@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Shield, Eye, EyeOff, Mail, Lock, ArrowRight, Loader2 } from 'lucide-react';
-import { signIn } from '@vaultsync/core';
+import { signIn, uint8ArrayToBase64 } from '@vaultsync/core';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -30,11 +30,10 @@ export default function LoginPage() {
     try {
       const { vaultKey } = await signIn({ email, masterPassword });
 
-      // Store vault key in sessionStorage (cleared on tab close)
-      const exportedKey = await crypto.subtle.exportKey('raw', vaultKey.key);
-      const keyBase64 = btoa(String.fromCharCode(...new Uint8Array(exportedKey)));
-      sessionStorage.setItem('vaultsync-vault-key', keyBase64);
-      sessionStorage.setItem('vaultsync-vault-salt', vaultKey.salt);
+      // Store vault key in localStorage
+      const keyBase64 = uint8ArrayToBase64(vaultKey.key);
+      localStorage.setItem('vaultsync-vault-key', keyBase64);
+      localStorage.setItem('vaultsync-vault-salt', vaultKey.salt);
 
       router.push('/vault');
     } catch (err) {

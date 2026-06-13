@@ -1,8 +1,9 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, useColorScheme, Switch, ScrollView,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
+import * as SecureStore from 'expo-secure-store';
 import { generatePassword, estimateStrength, type PasswordGeneratorOptions } from '@vaultsync/core';
 
 export default function GeneratorScreen() {
@@ -14,6 +15,24 @@ export default function GeneratorScreen() {
   });
   const [password, setPassword] = useState(() => generatePassword(options));
   const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    SecureStore.getItemAsync('vaultsync-generator-opts').then(val => {
+      if (val) {
+        try {
+          const parsed = JSON.parse(val);
+          setOptions(parsed);
+          setPassword(generatePassword(parsed));
+        } catch {}
+      }
+    });
+  }, []);
+
+  const updateOptions = (newOpts: PasswordGeneratorOptions) => {
+    setOptions(newOpts);
+    setPassword(generatePassword(newOpts));
+    SecureStore.setItemAsync('vaultsync-generator-opts', JSON.stringify(newOpts));
+  };
 
   const strength = estimateStrength(password);
   const strengthColors = ['#ef4444', '#f97316', '#eab308', '#84cc16', '#22c55e'];
@@ -31,9 +50,7 @@ export default function GeneratorScreen() {
   };
 
   const toggle = (key: keyof PasswordGeneratorOptions) => {
-    const newOpts = { ...options, [key]: !options[key] };
-    setOptions(newOpts);
-    setPassword(generatePassword(newOpts));
+    updateOptions({ ...options, [key]: !options[key] });
   };
 
   return (
@@ -76,13 +93,13 @@ export default function GeneratorScreen() {
           <Text style={[styles.optionValue, { color: c.accent }]}>{options.length}</Text>
         </View>
         <View style={styles.lengthRow}>
-          <TouchableOpacity onPress={() => { const v = Math.max(4, options.length - 1); setOptions({ ...options, length: v }); setPassword(generatePassword({ ...options, length: v })); }}>
+          <TouchableOpacity onPress={() => updateOptions({ ...options, length: Math.max(4, options.length - 1) })}>
             <Text style={[styles.lengthBtn, { color: c.accent }]}>−</Text>
           </TouchableOpacity>
           <View style={[styles.lengthTrack, { backgroundColor: c.border }]}>
             <View style={[styles.lengthFill, { width: `${((options.length - 4) / 60) * 100}%`, backgroundColor: c.accent }]} />
           </View>
-          <TouchableOpacity onPress={() => { const v = Math.min(64, options.length + 1); setOptions({ ...options, length: v }); setPassword(generatePassword({ ...options, length: v })); }}>
+          <TouchableOpacity onPress={() => updateOptions({ ...options, length: Math.min(64, options.length + 1) })}>
             <Text style={[styles.lengthBtn, { color: c.accent }]}>+</Text>
           </TouchableOpacity>
         </View>

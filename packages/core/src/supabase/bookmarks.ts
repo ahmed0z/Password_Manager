@@ -13,7 +13,7 @@ import type { Bookmark, DecryptedBookmark } from '../types';
  */
 export async function syncBookmarks(
   bookmarks: Array<DecryptedBookmark & { browserBookmarkId?: string }>,
-  vaultKey: CryptoKey
+  vaultKey: Uint8Array
 ): Promise<void> {
   const supabase = getSupabaseClient();
 
@@ -69,7 +69,7 @@ export async function syncBookmarks(
  * Fetches and decrypts all bookmarks for the current user.
  */
 export async function getBookmarks(
-  vaultKey: CryptoKey
+  vaultKey: Uint8Array
 ): Promise<Array<Bookmark & { decrypted: DecryptedBookmark }>> {
   const supabase = getSupabaseClient();
 
@@ -166,7 +166,7 @@ export function subscribeToBookmarks(
 export async function updateBookmark(
   id: string,
   bookmark: Omit<DecryptedBookmark, 'browserBookmarkId'>,
-  vaultKey: CryptoKey
+  vaultKey: Uint8Array
 ): Promise<void> {
   const supabase = getSupabaseClient();
 
@@ -199,7 +199,7 @@ export async function updateBookmark(
 export async function renameBookmarkFolder(
   oldPath: string,
   newPath: string,
-  vaultKey: CryptoKey
+  vaultKey: Uint8Array
 ): Promise<void> {
   const allBookmarks = await getBookmarks(vaultKey);
   const matching = allBookmarks.filter((b) => {
@@ -231,7 +231,7 @@ export async function renameBookmarkFolder(
  */
 export async function deleteBookmarkFolder(
   path: string,
-  vaultKey: CryptoKey
+  vaultKey: Uint8Array
 ): Promise<void> {
   const allBookmarks = await getBookmarks(vaultKey);
   const matching = allBookmarks.filter((b) => {

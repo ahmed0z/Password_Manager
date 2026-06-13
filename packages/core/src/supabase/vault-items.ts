@@ -1,10 +1,11 @@
 // ============================================================================
 // VaultSync — Vault Items CRUD
 // All data is encrypted before insertion and decrypted after retrieval.
+// Uses Uint8Array vault key (from @noble/ciphers engine) — no CryptoKey objects.
 // ============================================================================
 
 import { getSupabaseClient } from './client';
-import { encryptObject, decryptObject, encrypt } from '../crypto/encrypt';
+import { encryptObject, decryptObject } from '../crypto/encrypt';
 import type {
   VaultItem,
   DecryptedVaultItem,
@@ -18,15 +19,13 @@ import type {
  */
 export async function createVaultItem(
   input: VaultItemInput,
-  vaultKey: CryptoKey
+  vaultKey: Uint8Array
 ): Promise<VaultItem> {
   const supabase = getSupabaseClient();
 
-  // Get current user
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not authenticated');
 
-  // Encrypt the sensitive data
   const decryptedData: DecryptedVaultItem = {
     title: input.title,
     username: input.username,
@@ -37,8 +36,6 @@ export async function createVaultItem(
   };
 
   const encrypted: EncryptedPayload = await encryptObject(decryptedData, vaultKey);
-
-  // Extract domain for autofill matching (not sensitive)
   const domain = extractDomain(input.url);
 
   const { data, error } = await supabase
@@ -49,7 +46,7 @@ export async function createVaultItem(
       encrypted_data: encrypted.ciphertext,
       iv: encrypted.iv,
       domain,
-      favicon_url: domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=64` : null,
+      favicon_url: (domain && !isLocalOrInvalidDomain(domain)) ? `https://www.google.com/s2/favicons?domain=${domain}&sz=64` : null,
       is_favorite: input.isFavorite || false,
     })
     .select()
@@ -63,7 +60,7 @@ export async function createVaultItem(
  * Fetches and decrypts all vault items for the current user.
  */
 export async function getVaultItems(
-  vaultKey: CryptoKey
+  vaultKey: Uint8Array
 ): Promise<Array<VaultItem & { decrypted: DecryptedVaultItem }>> {
   const supabase = getSupabaseClient();
 
@@ -75,7 +72,6 @@ export async function getVaultItems(
   if (error) throw new Error(`Failed to fetch vault items: ${error.message}`);
   if (!data) return [];
 
-  // Decrypt each item locally
   const decrypted = await Promise.all(
     data.map(async (item: VaultItem) => {
       try {
@@ -85,7 +81,6 @@ export async function getVaultItems(
         );
         return { ...item, decrypted: decryptedData };
       } catch {
-        // If decryption fails for a single item, don't break the entire list
         console.warn(`Failed to decrypt vault item ${item.id}`);
         return {
           ...item,
@@ -108,7 +103,7 @@ export async function getVaultItems(
  */
 export async function getVaultItemsByFolder(
   folderId: string,
-  vaultKey: CryptoKey
+  vaultKey: Uint8Array
 ): Promise<Array<VaultItem & { decrypted: DecryptedVaultItem }>> {
   const supabase = getSupabaseClient();
 
@@ -151,7 +146,7 @@ export async function getVaultItemsByFolder(
  */
 export async function getVaultItemsByDomain(
   domain: string,
-  vaultKey: CryptoKey
+  vaultKey: Uint8Array
 ): Promise<Array<VaultItem & { decrypted: DecryptedVaultItem }>> {
   const supabase = getSupabaseClient();
 
@@ -175,17 +170,16 @@ export async function getVaultItemsByDomain(
 }
 
 /**
- * Updates an existing vault item. Re-encrypts all data.
+ * Updates an existing vault item. Re-encrypts all data with a fresh IV.
  */
 export async function updateVaultItem(
   id: string,
   input: Partial<VaultItemInput>,
   existingDecrypted: DecryptedVaultItem,
-  vaultKey: CryptoKey
+  vaultKey: Uint8Array
 ): Promise<VaultItem> {
   const supabase = getSupabaseClient();
 
-  // Merge updates with existing data
   const merged: DecryptedVaultItem = {
     ...existingDecrypted,
     ...(input.title !== undefined && { title: input.title }),
@@ -196,7 +190,6 @@ export async function updateVaultItem(
     ...(input.tags !== undefined && { tags: input.tags }),
   };
 
-  // Re-encrypt with fresh IV
   const encrypted = await encryptObject(merged, vaultKey);
   const domain = extractDomain(input.url || existingDecrypted.url);
 
@@ -226,12 +219,7 @@ export async function updateVaultItem(
  */
 export async function deleteVaultItem(id: string): Promise<void> {
   const supabase = getSupabaseClient();
-
-  const { error } = await supabase
-    .from('vault_items')
-    .delete()
-    .eq('id', id);
-
+  const { error } = await supabase.from('vault_items').delete().eq('id', id);
   if (error) throw new Error(`Failed to delete vault item: ${error.message}`);
 }
 
@@ -243,12 +231,10 @@ export async function toggleFavorite(
   isFavorite: boolean
 ): Promise<void> {
   const supabase = getSupabaseClient();
-
   const { error } = await supabase
     .from('vault_items')
     .update({ is_favorite: isFavorite, updated_at: new Date().toISOString() })
     .eq('id', id);
-
   if (error) throw new Error(`Failed to toggle favorite: ${error.message}`);
 }
 
@@ -290,4 +276,22 @@ function extractDomain(url: string): string | null {
   } catch {
     return null;
   }
+}
+
+function isLocalOrInvalidDomain(domain: string): boolean {
+  if (!domain) return true;
+  const d = domain.trim().toLowerCase();
+  if (d === 'localhost' || d.endsWith('.local') || d.endsWith('.localhost') || d.endsWith('.lan') || d.endsWith('.test')) {
+    return true;
+  }
+  if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(d)) {
+    return true;
+  }
+  if (d.includes(':')) {
+    return true;
+  }
+  if (!d.includes('.')) {
+    return true;
+  }
+  return false;
 }

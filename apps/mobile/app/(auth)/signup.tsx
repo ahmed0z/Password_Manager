@@ -4,7 +4,7 @@ import {
   useColorScheme, KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { signUp, estimateStrength } from '@vaultsync/core';
+import { signUp, estimateStrength, uint8ArrayToBase64 } from '@vaultsync/core';
 import * as SecureStore from 'expo-secure-store';
 
 export default function SignUpScreen() {
@@ -35,8 +35,7 @@ export default function SignUpScreen() {
     setLoading(true);
     try {
       const { vaultKey } = await signUp({ email, masterPassword });
-      const exportedKey = await crypto.subtle.exportKey('raw', vaultKey.key);
-      const keyBase64 = btoa(String.fromCharCode(...new Uint8Array(exportedKey)));
+      const keyBase64 = uint8ArrayToBase64(vaultKey.key);
       await SecureStore.setItemAsync('vaultsync-vault-key', keyBase64);
       await SecureStore.setItemAsync('vaultsync-vault-salt', vaultKey.salt);
       router.replace('/(tabs)/vault');

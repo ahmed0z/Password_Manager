@@ -32,7 +32,12 @@ const pendingCredentialsMap = new Map<number, PendingCreds>();
 
 // ---- Message Handling ----
 chrome.runtime.onMessage.addListener((message: any, sender: any, sendResponse: any) => {
-  handleMessage(message, sender).then(sendResponse);
+  handleMessage(message, sender)
+    .then(sendResponse)
+    .catch((err) => {
+      console.error('[VaultSync SW] Message handling failed:', err);
+      sendResponse({ error: String(err) });
+    });
   return true; // Keep message channel open for async response
 });
 
@@ -120,6 +125,22 @@ async function handleMessage(
     case 'GET_AUTH_STATE': {
       const { data } = await supabase.auth.getSession();
       return { session: data.session };
+    }
+
+    case 'SYNC_SESSION': {
+      const { session } = message.payload || {};
+      if (session) {
+        const { error } = await supabase.auth.setSession(session);
+        if (error) {
+          console.error('[VaultSync SW] Error setting synced session:', error);
+          return { success: false, error: error.message };
+        }
+        console.log('[VaultSync SW] Auth session synced from sidepanel successfully');
+      } else {
+        await supabase.auth.signOut();
+        console.log('[VaultSync SW] Auth session signed out / cleared');
+      }
+      return { success: true };
     }
 
     case 'STORE_VAULT_KEY': {
@@ -269,7 +290,7 @@ async function saveCredentials(creds: {
       encrypted_data: encrypted.ciphertext,
       iv: encrypted.iv,
       domain: creds.domain,
-      favicon_url: `https://www.google.com/s2/favicons?domain=${creds.domain}&sz=64`,
+      favicon_url: isLocalOrInvalidDomain(creds.domain) ? null : `https://www.google.com/s2/favicons?domain=${creds.domain}&sz=64`,
       is_favorite: false,
     });
 
@@ -418,6 +439,24 @@ async function syncBrowserBookmarks() {
   }
 }
 
+function isLocalOrInvalidDomain(domain: string): boolean {
+  if (!domain) return true;
+  const d = domain.trim().toLowerCase();
+  if (d === 'localhost' || d.endsWith('.local') || d.endsWith('.localhost') || d.endsWith('.lan') || d.endsWith('.test')) {
+    return true;
+  }
+  if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(d)) {
+    return true;
+  }
+  if (d.includes(':')) {
+    return true;
+  }
+  if (!d.includes('.')) {
+    return true;
+  }
+  return false;
+}
+
 function flattenBookmarks(
   nodes: chrome.bookmarks.BookmarkTreeNode[],
   path = ''
@@ -431,7 +470,9 @@ function flattenBookmarks(
       let favicon: string | undefined;
       try {
         const domain = new URL(node.url).hostname;
-        favicon = `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
+        if (!isLocalOrInvalidDomain(domain)) {
+          favicon = `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
+        }
       } catch { /* ignore */ }
 
       results.push({

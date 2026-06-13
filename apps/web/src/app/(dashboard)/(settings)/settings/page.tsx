@@ -10,7 +10,7 @@ import { useTheme } from '@/components/ThemeProvider';
 import {
   getVaultItems, getBookmarks, deleteVaultItem, clearAllBookmarks,
   type VaultItem, type DecryptedVaultItem, type Bookmark as BookmarkType,
-  type DecryptedBookmark,
+  type DecryptedBookmark, base64ToUint8Array,
 } from '@vaultsync/core';
 
 export default function SettingsPage() {
@@ -31,13 +31,10 @@ export default function SettingsPage() {
     return 30;
   });
 
-  const getVaultKey = useCallback(async (): Promise<CryptoKey | null> => {
-    const keyBase64 = sessionStorage.getItem('vaultsync-vault-key');
+  const getVaultKey = useCallback(async (): Promise<Uint8Array | null> => {
+    const keyBase64 = localStorage.getItem('vaultsync-vault-key');
     if (!keyBase64) return null;
-    const keyBytes = Uint8Array.from(atob(keyBase64), (c) => c.charCodeAt(0));
-    return crypto.subtle.importKey('raw', keyBytes, { name: 'AES-GCM', length: 256 }, true, [
-      'encrypt', 'decrypt',
-    ]);
+    return base64ToUint8Array(keyBase64);
   }, []);
 
   useEffect(() => {

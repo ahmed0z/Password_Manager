@@ -2,15 +2,16 @@
 // VaultSync — Authentication Module
 // Handles sign-up, sign-in, sign-out, and vault key recovery.
 // The master password is NEVER sent to Supabase — only a derived auth key.
+// Uses @noble/hashes via vault-key.ts for cross-platform PBKDF2 derivation.
 // ============================================================================
 
 import { getSupabaseClient } from './client';
 import {
   generateSalt,
-  deriveVaultKey,
-  deriveAuthKey,
-  createRecoveryKey,
-  recoverVaultKey as recoverVaultKeyFromBlob,
+  deriveVaultKeyBytes,
+  deriveAuthKeyHex,
+  createRecoveryKeyBlob,
+  recoverVaultKeyBytes,
 } from '../crypto/vault-key';
 import type {
   UserProfile,
@@ -19,14 +20,18 @@ import type {
   SignInInput,
 } from '../types';
 
+// ============================================================================
+// Sign Up
+// ============================================================================
+
 /**
  * Registers a new user.
  *
  * Flow:
  * 1. Generate unique salts for auth and vault key derivation
- * 2. Derive auth key (used as Supabase password — NOT the master password)
- * 3. Derive vault key (used for encryption — never sent to server)
- * 4. Create encrypted recovery key blob
+ * 2. Derive auth key hex (used as Supabase password — NOT the master password)
+ * 3. Derive vault key bytes (used for encryption — never sent to server)
+ * 4. Create encrypted recovery blob
  * 5. Sign up with Supabase auth using derived auth key
  * 6. Store salts and recovery blob in profiles table
  * 7. Return vault key material for immediate use
@@ -36,34 +41,30 @@ export async function signUp(
 ): Promise<{ profile: UserProfile; vaultKey: VaultKeyMaterial }> {
   const supabase = getSupabaseClient();
 
-  // Step 1: Generate unique salts
+  // Step 1: Generate unique salts (auth and vault use different salts)
   const authSalt = generateSalt();
   const vaultSalt = generateSalt();
 
-  // Step 2: Derive auth key (this becomes the Supabase password)
-  const authKey = await deriveAuthKey(input.masterPassword, authSalt);
+  // Step 2: Derive auth key (hex string used as Supabase password)
+  const authKeyHex = await deriveAuthKeyHex(input.masterPassword, authSalt);
 
-  // Step 3: Derive vault key (never leaves the device)
-  const vaultKey = await deriveVaultKey(input.masterPassword, vaultSalt);
+  // Step 3: Derive vault key (raw bytes, never leaves device)
+  const vaultKeyBytes = await deriveVaultKeyBytes(input.masterPassword, vaultSalt);
 
-  // Step 4: Create recovery key (encrypted vault key, recoverable via email + master password)
-  const recovery = await createRecoveryKey(
-    vaultKey,
-    input.email,
-    input.masterPassword
-  );
+  // Step 4: Create encrypted recovery blob
+  const recovery = await createRecoveryKeyBlob(vaultKeyBytes, input.email, input.masterPassword);
 
-  // Step 5: Sign up with Supabase auth
+  // Step 5: Register with Supabase auth
   const { data: authData, error: authError } = await supabase.auth.signUp({
     email: input.email,
-    password: authKey,
+    password: authKeyHex,
   });
 
   if (authError || !authData.user) {
     throw new Error(`Sign-up failed: ${authError?.message || 'Unknown error'}`);
   }
 
-  // Step 6: Store salts and recovery blob in profiles table
+  // Step 6: Store salts + recovery blob in profiles table
   const profile: Omit<UserProfile, 'created_at' | 'updated_at'> = {
     id: authData.user.id,
     email: input.email,
@@ -74,39 +75,39 @@ export async function signUp(
     recovery_salt: recovery.recoverySalt,
   };
 
-  const { error: profileError } = await supabase
-    .from('profiles')
-    .insert(profile);
-
+  const { error: profileError } = await supabase.from('profiles').insert(profile);
   if (profileError) {
     throw new Error(`Profile creation failed: ${profileError.message}`);
   }
 
   return {
     profile: profile as UserProfile,
-    vaultKey: { key: vaultKey, salt: vaultSalt },
+    vaultKey: { key: vaultKeyBytes, salt: vaultSalt },
   };
 }
+
+// ============================================================================
+// Sign In
+// ============================================================================
 
 /**
  * Signs in an existing user.
  *
  * Flow:
- * 1. Fetch the user's profile to get salts
+ * 1. Fetch the user's profile to get salts (public read via RLS policy)
  * 2. Derive auth key from master password + auth salt
- * 3. Sign in with Supabase auth
+ * 3. Sign in with Supabase auth using derived auth key
  * 4. Derive vault key from master password + vault salt
- * 5. Return vault key material
+ * 5. Return vault key material for immediate use
+ *
+ * This function works identically on Web, Chrome Extension, and React Native.
  */
 export async function signIn(
   input: SignInInput
 ): Promise<{ profile: UserProfile; vaultKey: VaultKeyMaterial }> {
   const supabase = getSupabaseClient();
 
-  // Step 1: Fetch profile to get salts
-  // We need to sign in first to access RLS-protected data, but we need the salt to derive the auth key.
-  // Solution: Store auth_salt in a public lookup or use email-based lookup before auth.
-  // For security, we use a server function that returns only the salts given an email.
+  // Step 1: Fetch profile to get salts (unauthenticated read allowed by RLS)
   const { data: profileData, error: profileError } = await supabase
     .from('profiles')
     .select('auth_salt, encrypted_vault_salt, id, email, encrypted_recovery_key, recovery_iv, recovery_salt, created_at, updated_at')
@@ -117,33 +118,37 @@ export async function signIn(
     throw new Error('Account not found. Please check your email.');
   }
 
-  // Step 2: Derive auth key
-  const authKey = await deriveAuthKey(input.masterPassword, profileData.auth_salt);
+  // Step 2: Derive auth key (same algorithm as signup — guaranteed identical output)
+  const authKeyHex = await deriveAuthKeyHex(input.masterPassword, profileData.auth_salt);
 
   // Step 3: Sign in with Supabase
   const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
     email: input.email,
-    password: authKey,
+    password: authKeyHex,
   });
 
   if (authError || !authData.user) {
     throw new Error('Invalid master password. Please try again.');
   }
 
-  // Step 4: Derive vault key
-  const vaultKey = await deriveVaultKey(
+  // Step 4: Derive vault key (same algorithm as signup — guaranteed identical output)
+  const vaultKeyBytes = await deriveVaultKeyBytes(
     input.masterPassword,
     profileData.encrypted_vault_salt
   );
 
   return {
     profile: profileData as UserProfile,
-    vaultKey: { key: vaultKey, salt: profileData.encrypted_vault_salt },
+    vaultKey: { key: vaultKeyBytes, salt: profileData.encrypted_vault_salt },
   };
 }
 
+// ============================================================================
+// Session Management
+// ============================================================================
+
 /**
- * Signs out the current user and clears the session.
+ * Signs out the current user and clears the Supabase session.
  */
 export async function signOut(): Promise<void> {
   const supabase = getSupabaseClient();
@@ -173,20 +178,20 @@ export function onAuthStateChange(
   return supabase.auth.onAuthStateChange(callback);
 }
 
+// ============================================================================
+// Vault Key Recovery
+// ============================================================================
+
 /**
- * Recovers the vault key using email confirmation.
- * The user must have verified their email OTP before calling this.
- *
- * @param email - User's email
- * @param masterPassword - The recovery password (same as master password during signup)
+ * Recovers vault key bytes using the encrypted recovery blob stored in the profile.
+ * The user must be authenticated (via password reset flow) before calling this.
  */
 export async function recoverUserVaultKey(
   email: string,
-  recoveryPassword: string
+  masterPassword: string
 ): Promise<VaultKeyMaterial> {
   const supabase = getSupabaseClient();
 
-  // Fetch recovery data
   const { data, error } = await supabase
     .from('profiles')
     .select('encrypted_recovery_key, recovery_iv, recovery_salt, encrypted_vault_salt')
@@ -201,15 +206,15 @@ export async function recoverUserVaultKey(
     throw new Error('No recovery key set up for this account.');
   }
 
-  const vaultKey = await recoverVaultKeyFromBlob(
+  const vaultKeyBytes = await recoverVaultKeyBytes(
     data.encrypted_recovery_key,
     data.recovery_iv,
     data.recovery_salt,
     email,
-    recoveryPassword
+    masterPassword
   );
 
-  return { key: vaultKey, salt: data.encrypted_vault_salt };
+  return { key: vaultKeyBytes, salt: data.encrypted_vault_salt };
 }
 
 /**

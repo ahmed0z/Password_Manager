@@ -9,6 +9,15 @@ declare const process: any;
 declare const chrome: any;
 
 let supabaseInstance: SupabaseClient | null = null;
+let customStorageAdapter: any = null;
+
+export function setSupabaseStorageAdapter(adapter: {
+  getItem: (key: string) => Promise<string | null>;
+  setItem: (key: string, value: string) => Promise<void>;
+  removeItem: (key: string) => Promise<void>;
+}) {
+  customStorageAdapter = adapter;
+}
 
 /**
  * A universal storage adapter that dynamically switches to chrome.storage.local
@@ -16,7 +25,11 @@ let supabaseInstance: SupabaseClient | null = null;
  */
 const universalStorageAdapter = {
   getItem: (key: string): Promise<string | null> => {
-    return new Promise((resolve) => {
+    return new Promise(async (resolve) => {
+      if (customStorageAdapter) {
+        resolve(await customStorageAdapter.getItem(key));
+        return;
+      }
       if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
         chrome.storage.local.get([key], (result: any) => {
           resolve(result[key] || null);
@@ -29,7 +42,12 @@ const universalStorageAdapter = {
     });
   },
   setItem: (key: string, value: string): Promise<void> => {
-    return new Promise((resolve) => {
+    return new Promise(async (resolve) => {
+      if (customStorageAdapter) {
+        await customStorageAdapter.setItem(key, value);
+        resolve();
+        return;
+      }
       if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
         chrome.storage.local.set({ [key]: value }, () => resolve());
       } else if (typeof window !== 'undefined' && window.localStorage) {
@@ -41,7 +59,12 @@ const universalStorageAdapter = {
     });
   },
   removeItem: (key: string): Promise<void> => {
-    return new Promise((resolve) => {
+    return new Promise(async (resolve) => {
+      if (customStorageAdapter) {
+        await customStorageAdapter.removeItem(key);
+        resolve();
+        return;
+      }
       if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
         chrome.storage.local.remove([key], () => resolve());
       } else if (typeof window !== 'undefined' && window.localStorage) {

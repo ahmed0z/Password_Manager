@@ -13,7 +13,7 @@ import {
   signOut, getSession, getFolders, createFolder, renameFolder,
   deleteFolder, buildFolderTree, getBookmarks, renameBookmarkFolder,
   deleteBookmarkFolder, buildBookmarkFolderTree, type DecryptedFolder,
-  type BookmarkFolderNode
+  type BookmarkFolderNode, base64ToUint8Array
 } from '@vaultsync/core';
 
 export default function VaultLayout({ children }: { children: React.ReactNode }) {
@@ -252,11 +252,10 @@ function SidebarFolders({ pathname }: { pathname: string }) {
     setExpandedFolders(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const getVaultKey = useCallback(async (): Promise<CryptoKey | null> => {
-    const keyBase64 = sessionStorage.getItem('vaultsync-vault-key');
+  const getVaultKey = useCallback(async (): Promise<Uint8Array | null> => {
+    const keyBase64 = localStorage.getItem('vaultsync-vault-key');
     if (!keyBase64) return null;
-    const keyBytes = Uint8Array.from(atob(keyBase64), (c) => c.charCodeAt(0));
-    return crypto.subtle.importKey('raw', keyBytes, { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+    return base64ToUint8Array(keyBase64);
   }, []);
 
   const loadFolders = useCallback(async () => {
@@ -290,6 +289,10 @@ function SidebarFolders({ pathname }: { pathname: string }) {
       }
     } catch (err) {
       console.error('Failed to load folders:', err);
+      if (err instanceof Error && err.message === 'Not authenticated') {
+        await signOut();
+        router.replace('/auth/login');
+      }
     } finally {
       setLoading(false);
     }

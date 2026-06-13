@@ -3,6 +3,8 @@
 // Detects login forms, fills credentials, and captures new/updated passwords.
 // ============================================================================
 
+import { base64ToUint8Array, decryptObject } from '@vaultsync/core';
+
 declare const chrome: any;
 
 interface DetectedField {
@@ -68,6 +70,8 @@ function detectLoginFields(): DetectedField[] {
     'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="image"]):not([type="range"]):not([type="color"]):not([type="date"]):not([type="time"])'
   ));
 
+  console.log(`[VaultSync Autofill] detectLoginFields found ${inputs.length} candidate input fields.`);
+
   const classifiedInputs: { element: HTMLInputElement; field: DetectedField }[] = [];
 
   for (const input of inputs) {
@@ -109,6 +113,7 @@ function detectLoginFields(): DetectedField[] {
     }
   }
 
+  console.log('[VaultSync Autofill] Classified fields:', fields.map(f => ({ name: f.element.name, id: f.element.id, type: f.fieldType, confidence: f.confidence })));
   return fields;
 }
 
@@ -217,6 +222,7 @@ function findAssociatedLabel(input: HTMLInputElement): string | null {
 // ============================================================================
 
 function showAutofillBubble(field: DetectedField, itemCount: number) {
+  console.log(`[VaultSync Autofill] Showing bubble near element:`, field.element, `Item count: ${itemCount}`);
   removeAutofillBubble();
   injectStyles();
 
@@ -431,37 +437,38 @@ function escapeHtml(str: string): string {
 // ============================================================================
 
 async function fillCredentials(field: DetectedField) {
+  console.log('[VaultSync Autofill] Triggering credential autofill...');
   const keyData = await chrome.runtime.sendMessage({ type: 'GET_VAULT_KEY' });
   if (!keyData?.vaultKey) {
+    console.log('[VaultSync Autofill] Vault is locked. Requesting side panel open.');
     // Open side panel for login
     chrome.runtime.sendMessage({ type: 'OPEN_SIDE_PANEL' });
     return;
   }
 
   const domain = window.location.hostname.replace('www.', '');
+  console.log(`[VaultSync Autofill] Requesting credentials for domain: ${domain}`);
   const response = await chrome.runtime.sendMessage({
     type: 'GET_CREDENTIALS_FOR_DOMAIN',
     payload: { domain },
   });
 
-  if (!response?.items?.length) return;
+  console.log('[VaultSync Autofill] Received credentials response:', response);
+  if (!response?.items?.length) {
+    console.log('[VaultSync Autofill] No credentials found for this domain.');
+    return;
+  }
 
   // Import vault key
-  const keyBytes = Uint8Array.from(atob(keyData.vaultKey), (c) => c.charCodeAt(0));
-  const cryptoKey = await crypto.subtle.importKey(
-    'raw', keyBytes, { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']
-  );
+  const keyBytes = base64ToUint8Array(keyData.vaultKey);
 
   // Decrypt first matching item
   const item = response.items[0];
   try {
-    const ciphertext = Uint8Array.from(atob(item.encrypted_data), (c) => c.charCodeAt(0));
-    const iv = Uint8Array.from(atob(item.iv), (c) => c.charCodeAt(0));
-
-    const decryptedBuffer = await crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv }, cryptoKey, ciphertext
+    const decrypted = await decryptObject<{ username: string; password: string }>(
+      { ciphertext: item.encrypted_data, iv: item.iv },
+      keyBytes
     );
-    const decrypted = JSON.parse(new TextDecoder().decode(decryptedBuffer));
 
     // Find and fill all fields
     const fields = detectLoginFields();
@@ -652,10 +659,14 @@ function detectFieldsInContainer(container: HTMLElement): DetectedField[] {
 }
 
 function captureCredentialsFromFields(fields: DetectedField[]) {
+  console.log('[VaultSync Autofill] Attempting capture from fields:', fields.map(f => ({ id: f.element.id, type: f.fieldType, hasValue: !!f.element.value })));
   const passwordField = fields.find(f => f.fieldType === 'password');
   const usernameField = fields.find(f => f.fieldType === 'username' || f.fieldType === 'email');
 
-  if (!passwordField || !passwordField.element.value) return;
+  if (!passwordField || !passwordField.element.value) {
+    console.log('[VaultSync Autofill] Capture aborted: no password field or no password value');
+    return;
+  }
   const password = passwordField.element.value;
   let username = usernameField?.element.value || '';
 
@@ -755,6 +766,7 @@ function setupFocusListeners() {
 
 // Run on page load
 function init() {
+  console.log('[VaultSync Autofill] Initializing content script autofill engine...');
   injectStyles();
   interceptFormSubmissions();
   setupFocusListeners();

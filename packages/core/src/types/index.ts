@@ -108,8 +108,8 @@ export interface EncryptedPayload {
 
 /** Vault key material stored in memory during a session */
 export interface VaultKeyMaterial {
-  key: CryptoKey;
-  salt: string;  // Base64-encoded salt used for derivation
+  key: Uint8Array;   // 32 raw bytes — never a CryptoKey object
+  salt: string;      // Base64-encoded salt used for derivation
 }
 
 // ---------------------------------------------------------------------------

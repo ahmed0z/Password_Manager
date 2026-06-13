@@ -2,6 +2,7 @@ import { View, Text, StyleSheet, useColorScheme, ScrollView, TouchableOpacity } 
 import { useRouter } from 'expo-router';
 import { signOut } from '@vaultsync/core';
 import * as SecureStore from 'expo-secure-store';
+import { useState, useEffect } from 'react';
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -15,12 +16,29 @@ export default function SettingsScreen() {
     router.replace('/(auth)/login');
   };
 
+  const [sessionTimeout, setSessionTimeout] = useState('always');
+
+  useEffect(() => {
+    SecureStore.getItemAsync('vaultsync-session-timeout').then(val => {
+      if (val) setSessionTimeout(val);
+    });
+  }, []);
+
+  const toggleTimeout = async () => {
+    const options = ['5m', '15m', '1h', '12h', '24h', '2d', 'always'];
+    const nextIdx = (options.indexOf(sessionTimeout) + 1) % options.length;
+    const nextVal = options[nextIdx];
+    setSessionTimeout(nextVal);
+    await SecureStore.setItemAsync('vaultsync-session-timeout', nextVal);
+  };
+
   interface SettingItem {
     label: string;
     value: string;
     badge?: string;
     badgeColor?: string;
     action?: boolean;
+    onPress?: () => void;
   }
 
   const sections: { title: string; items: SettingItem[] }[] = [
@@ -41,6 +59,12 @@ export default function SettingsScreen() {
       ],
     },
     {
+      title: 'Preferences',
+      items: [
+        { label: 'Auto-Logout Timeout', value: sessionTimeout, action: true, onPress: toggleTimeout },
+      ],
+    },
+    {
       title: 'About',
       items: [
         { label: 'Version', value: '1.0.0' },
@@ -55,26 +79,31 @@ export default function SettingsScreen() {
         <View key={section.title} style={{ marginBottom: 24 }}>
           <Text style={[styles.sectionTitle, { color: c.textSec }]}>{section.title}</Text>
           <View style={[styles.sectionCard, { backgroundColor: c.card, borderColor: c.border }]}>
-            {section.items.map((item, i) => (
-              <View
-                key={item.label}
-                style={[
-                  styles.settingRow,
-                  i < section.items.length - 1 && { borderBottomWidth: 1, borderBottomColor: c.border },
-                ]}
-              >
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.settingLabel, { color: c.text }]}>{item.label}</Text>
-                  <Text style={[styles.settingValue, { color: c.textSec }]}>{item.value}</Text>
-                </View>
-                {item.badge && (
-                  <View style={[styles.badge, { backgroundColor: `${item.badgeColor}18` }]}>
-                    <Text style={[styles.badgeText, { color: item.badgeColor }]}>{item.badge}</Text>
+            {section.items.map((item, i) => {
+              const RowComponent = item.onPress ? TouchableOpacity : View;
+              return (
+                <RowComponent
+                  key={item.label}
+                  onPress={item.onPress}
+                  activeOpacity={0.7}
+                  style={[
+                    styles.settingRow,
+                    i < section.items.length - 1 && { borderBottomWidth: 1, borderBottomColor: c.border },
+                  ]}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.settingLabel, { color: c.text }]}>{item.label}</Text>
+                    <Text style={[styles.settingValue, { color: c.textSec }]}>{item.value}</Text>
                   </View>
-                )}
-                {item.action && <Text style={{ color: c.accent, fontSize: 16 }}>→</Text>}
-              </View>
-            ))}
+                  {item.badge && (
+                    <View style={[styles.badge, { backgroundColor: `${item.badgeColor}18` }]}>
+                      <Text style={[styles.badgeText, { color: item.badgeColor }]}>{item.badge}</Text>
+                    </View>
+                  )}
+                  {item.action && <Text style={{ color: c.accent, fontSize: 16 }}>→</Text>}
+                </RowComponent>
+              );
+            })}
           </View>
         </View>
       ))}

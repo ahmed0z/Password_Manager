@@ -12,7 +12,7 @@ import type { Folder, DecryptedFolder } from '../types';
  */
 export async function createFolder(
   name: string,
-  vaultKey: CryptoKey,
+  vaultKey: Uint8Array,
   parentId?: string
 ): Promise<Folder> {
   const supabase = getSupabaseClient();
@@ -54,7 +54,7 @@ export async function createFolder(
  * Returns a flat array — caller can build the tree structure.
  */
 export async function getFolders(
-  vaultKey: CryptoKey
+  vaultKey: Uint8Array
 ): Promise<DecryptedFolder[]> {
   const supabase = getSupabaseClient();
 
@@ -124,7 +124,7 @@ export function buildFolderTree(folders: DecryptedFolder[]): DecryptedFolder[] {
 export async function renameFolder(
   id: string,
   newName: string,
-  vaultKey: CryptoKey
+  vaultKey: Uint8Array
 ): Promise<void> {
   const supabase = getSupabaseClient();
   const encrypted = await encrypt(newName, vaultKey);

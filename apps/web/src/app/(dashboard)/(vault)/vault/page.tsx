@@ -9,7 +9,7 @@ import {
 import {
   getVaultItems, deleteVaultItem, toggleFavorite,
   createVaultItem, getFolders, createFolder,
-  type DecryptedVaultItem, type VaultItem, type DecryptedFolder,
+  type DecryptedVaultItem, type VaultItem, type DecryptedFolder, base64ToUint8Array
 } from '@vaultsync/core';
 
 function VaultContent() {
@@ -25,15 +25,10 @@ function VaultContent() {
   const [revealedPasswords, setRevealedPasswords] = useState<Set<string>>(new Set());
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  const getVaultKey = useCallback(async (): Promise<CryptoKey | null> => {
-    const keyBase64 = sessionStorage.getItem('vaultsync-vault-key');
+  const getVaultKey = useCallback(async (): Promise<Uint8Array | null> => {
+    const keyBase64 = localStorage.getItem('vaultsync-vault-key');
     if (!keyBase64) return null;
-
-    const keyBytes = Uint8Array.from(atob(keyBase64), (c) => c.charCodeAt(0));
-    return crypto.subtle.importKey('raw', keyBytes, { name: 'AES-GCM', length: 256 }, true, [
-      'encrypt',
-      'decrypt',
-    ]);
+    return base64ToUint8Array(keyBase64);
   }, []);
 
   const loadData = useCallback(async () => {
@@ -415,7 +410,7 @@ function AddPasswordModal({
   folders: DecryptedFolder[];
   onClose: () => void;
   onAdded: () => void;
-  getVaultKey: () => Promise<CryptoKey | null>;
+  getVaultKey: () => Promise<Uint8Array | null>;
 }) {
   const [title, setTitle] = useState('');
   const [username, setUsername] = useState('');
@@ -517,7 +512,7 @@ function AddFolderModal({
 }: {
   onClose: () => void;
   onAdded: () => void;
-  getVaultKey: () => Promise<CryptoKey | null>;
+  getVaultKey: () => Promise<Uint8Array | null>;
 }) {
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);

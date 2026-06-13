@@ -4,12 +4,10 @@
 
 export {
   generateSalt,
-  deriveVaultKey,
-  deriveAuthKey,
-  exportKey,
-  importKey,
-  createRecoveryKey,
-  recoverVaultKey,
+  deriveVaultKeyBytes,
+  deriveAuthKeyHex,
+  createRecoveryKeyBlob,
+  recoverVaultKeyBytes,
   uint8ArrayToBase64,
   base64ToUint8Array,
   uint8ArrayToHex,
@@ -20,4 +18,6 @@ export {
   decrypt,
   encryptObject,
   decryptObject,
+  encryptRaw,
+  decryptRaw,
 } from './encrypt';
