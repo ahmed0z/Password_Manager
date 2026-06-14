@@ -1,10 +1,10 @@
 {
   "name": "@vaultsync/extension",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "private": true,
   "scripts": {
-    "dev": "vite build --watch",
-    "build": "vite build && node copy-manifest.js",
+    "dev": "vite build --watch & vite build --config vite.config.content.ts --watch",
+    "build": "vite build && vite build --config vite.config.content.ts && node copy-manifest.js",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

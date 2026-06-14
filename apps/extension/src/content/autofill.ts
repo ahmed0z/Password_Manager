@@ -1,9 +1,8 @@
 // ============================================================================
 // VaultSync — Content Script: Autofill & Auto-Save Engine
 // Detects login forms, fills credentials, and captures new/updated passwords.
+// No external imports — all crypto is handled by the service worker.
 // ============================================================================
-
-import { base64ToUint8Array, decryptObject } from '@vaultsync/core';
 
 declare const chrome: any;
 
@@ -436,51 +435,41 @@ function escapeHtml(str: string): string {
 // Autofill — Fill detected fields with saved credentials
 // ============================================================================
 
-async function fillCredentials(field: DetectedField) {
+async function fillCredentials(_field?: DetectedField) {
   console.log('[VaultSync Autofill] Triggering credential autofill...');
-  const keyData = await chrome.runtime.sendMessage({ type: 'GET_VAULT_KEY' });
-  if (!keyData?.vaultKey) {
-    console.log('[VaultSync Autofill] Vault is locked. Requesting side panel open.');
-    // Open side panel for login
-    chrome.runtime.sendMessage({ type: 'OPEN_SIDE_PANEL' });
-    return;
-  }
-
   const domain = window.location.hostname.replace('www.', '');
-  console.log(`[VaultSync Autofill] Requesting credentials for domain: ${domain}`);
-  const response = await chrome.runtime.sendMessage({
-    type: 'GET_CREDENTIALS_FOR_DOMAIN',
-    payload: { domain },
-  });
+  console.log(`[VaultSync Autofill] Requesting decrypted credentials for domain: ${domain}`);
 
-  console.log('[VaultSync Autofill] Received credentials response:', response);
-  if (!response?.items?.length) {
-    console.log('[VaultSync Autofill] No credentials found for this domain.');
-    return;
-  }
-
-  // Import vault key
-  const keyBytes = base64ToUint8Array(keyData.vaultKey);
-
-  // Decrypt first matching item
-  const item = response.items[0];
   try {
-    const decrypted = await decryptObject<{ username: string; password: string }>(
-      { ciphertext: item.encrypted_data, iv: item.iv },
-      keyBytes
-    );
+    const response = await chrome.runtime.sendMessage({
+      type: 'AUTOFILL_CREDENTIALS_FOR_DOMAIN',
+      payload: { domain },
+    });
+
+    console.log('[VaultSync Autofill] Received autofill response:', response);
+
+    if (response?.locked) {
+      console.log('[VaultSync Autofill] Vault is locked. Requesting side panel open.');
+      chrome.runtime.sendMessage({ type: 'OPEN_SIDE_PANEL' });
+      return;
+    }
+
+    if (!response?.success) {
+      console.log('[VaultSync Autofill] No credentials found for this domain.');
+      return;
+    }
 
     // Find and fill all fields
     const fields = detectLoginFields();
     for (const f of fields) {
       if (f.fieldType === 'username' || f.fieldType === 'email') {
-        setInputValue(f.element, decrypted.username);
+        setInputValue(f.element, response.username);
       } else if (f.fieldType === 'password') {
-        setInputValue(f.element, decrypted.password);
+        setInputValue(f.element, response.password);
       }
     }
   } catch (e) {
-    console.error('[VaultSync] Autofill decryption failed:', e);
+    console.error('[VaultSync] Autofill failed:', e);
   }
 }
 
@@ -513,8 +502,13 @@ function setInputValue(input: HTMLInputElement, value: string) {
 // ============================================================================
 
 function interceptFormSubmissions() {
+  console.log('[VaultSync Autofill] Setting up form submission interception...');
+
   // Listen for native form submissions
-  document.addEventListener('submit', handleFormSubmit, true);
+  document.addEventListener('submit', (e) => {
+    console.log('[VaultSync Autofill] Form submit event detected');
+    handleFormSubmit(e);
+  }, true);
 
   // Track username/email values as user types (for multi-step login forms)
   document.addEventListener('input', (e) => {
@@ -524,6 +518,7 @@ function interceptFormSubmissions() {
     if ((field.fieldType === 'username' || field.fieldType === 'email') && target.value) {
       trackedUsername = target.value;
       trackedUsernameTimestamp = Date.now();
+      console.log('[VaultSync Autofill] Tracked username:', trackedUsername);
     }
   }, true);
 
@@ -533,6 +528,7 @@ function interceptFormSubmissions() {
     const button = target.closest('button, [role="button"], input[type="submit"], a[href="#"], a[role="button"]') as HTMLElement;
     if (!button) return;
 
+    console.log('[VaultSync Autofill] Button clicked, checking for credential capture...');
     tryCapturingFromButton(button);
   }, true);
 
@@ -542,10 +538,13 @@ function interceptFormSubmissions() {
     const target = e.target as HTMLInputElement;
     if (!target || target.tagName !== 'INPUT') return;
 
+    console.log('[VaultSync Autofill] Enter key pressed, checking for credential capture...');
+
     const container = target.closest('form') || findCredentialContainer(target);
     if (container) {
       const passwordEl = container.querySelector('input[type="password"]') as HTMLInputElement;
       if (passwordEl && passwordEl.value) {
+        console.log('[VaultSync Autofill] Password field has value, capturing credentials...');
         setTimeout(() => {
           const fields = detectFieldsInContainer(container as HTMLElement);
           captureCredentialsFromFields(fields);
@@ -556,6 +555,7 @@ function interceptFormSubmissions() {
       const allFields = detectLoginFields();
       const hasPasswordVal = allFields.some(f => f.fieldType === 'password' && f.element.value);
       if (hasPasswordVal) {
+        console.log('[VaultSync Autofill] Password field found on page, capturing credentials...');
         setTimeout(() => {
           captureCredentialsFromFields(allFields);
         }, 100);
@@ -570,9 +570,12 @@ function tryCapturingFromButton(button: HTMLElement) {
   const ariaLabel = (button.getAttribute('aria-label') || '').toLowerCase();
   const testId = (button.getAttribute('data-testid') || '').toLowerCase();
 
+  console.log('[VaultSync Autofill] Button analysis:', { buttonText, buttonType, ariaLabel, testId });
+
   // Exclude eye icons / forgot password / cancel button clicks
   const ignorePatterns = /show|hide|reveal|forgot|cancel|close|reset|toggle/i;
   if (ignorePatterns.test(buttonText) || ignorePatterns.test(ariaLabel) || ignorePatterns.test(testId)) {
+    console.log('[VaultSync Autofill] Button ignored (matches ignore pattern)');
     return;
   }
 
@@ -589,6 +592,8 @@ function tryCapturingFromButton(button: HTMLElement) {
     if (pws.some(p => p.value)) hasPasswordWithValue = true;
   }
 
+  console.log('[VaultSync Autofill] Password field with value found:', hasPasswordWithValue);
+
   // Broad check: does the button text CONTAIN login-related words?
   const loginPatterns = /sign.?in|log.?in|submit|continue|next|enter|login|connexion|iniciar|anmelden|sign.?up|register|create.?account|get.?started|authenticate/i;
   const isLoginButton = loginPatterns.test(buttonText)
@@ -597,11 +602,15 @@ function tryCapturingFromButton(button: HTMLElement) {
     || buttonType === 'submit'
     || hasPasswordWithValue; // Capture on any button click if a password field is filled
 
+  console.log('[VaultSync Autofill] Is login button:', isLoginButton);
+
   if (!isLoginButton) return;
 
   if (container) {
     const fields = detectFieldsInContainer(container as HTMLElement);
+    console.log('[VaultSync Autofill] Fields in container:', fields.map(f => ({ type: f.fieldType, hasValue: !!f.element.value })));
     if (fields.some(f => f.fieldType === 'password')) {
+      console.log('[VaultSync Autofill] Capturing credentials from container...');
       captureCredentialsFromFields(fields);
       return;
     }
@@ -609,7 +618,9 @@ function tryCapturingFromButton(button: HTMLElement) {
 
   // Fallback: scan all visible fields on the page
   const allFields = detectLoginFields();
+  console.log('[VaultSync Autofill] All fields on page:', allFields.map(f => ({ type: f.fieldType, hasValue: !!f.element.value })));
   if (allFields.some(f => f.fieldType === 'password')) {
+    console.log('[VaultSync Autofill] Capturing credentials from page...');
     captureCredentialsFromFields(allFields);
   }
 }
@@ -677,7 +688,10 @@ function captureCredentialsFromFields(fields: DetectedField[]) {
   }
 
   // Don't re-prompt for the same credentials
-  if (password === lastCapturedPassword && username === lastCapturedUsername) return;
+  if (password === lastCapturedPassword && username === lastCapturedUsername) {
+    console.log('[VaultSync Autofill] Capture aborted: credentials already captured recently');
+    return;
+  }
   lastCapturedPassword = password;
   lastCapturedUsername = username;
 
@@ -696,6 +710,8 @@ function captureCredentialsFromFields(fields: DetectedField[]) {
   chrome.runtime.sendMessage({
     type: 'STAGE_PENDING_CREDENTIALS',
     payload: credentials,
+  }).then(() => {
+    console.log('[VaultSync] Credentials staged successfully');
   }).catch((err: any) => {
     console.error('[VaultSync] Failed to stage credentials:', err);
   });
@@ -707,9 +723,13 @@ function captureCredentialsFromFields(fields: DetectedField[]) {
   }).then((response: { exists: boolean; passwordChanged: boolean }) => {
     console.log('[VaultSync] CHECK_CREDENTIALS_EXIST response:', response);
     if (response?.exists && response?.passwordChanged) {
+      console.log('[VaultSync] Showing update toast');
       showSaveToast(credentials, true); // Update prompt
     } else if (!response?.exists) {
+      console.log('[VaultSync] Showing save toast');
       showSaveToast(credentials, false); // Save prompt
+    } else {
+      console.log('[VaultSync] Credentials exist and password unchanged, not showing toast');
     }
   }).catch((err: any) => {
     console.error('[VaultSync] CHECK_CREDENTIALS_EXIST failed, showing save anyway:', err);
@@ -735,16 +755,21 @@ function setupFocusListeners() {
 
       // Check if we have credentials for this domain
       const domain = window.location.hostname.replace('www.', '');
+      console.log(`[VaultSync Autofill] Field focused: ${field.fieldType}, checking credentials for domain: ${domain}`);
       try {
         const response = await chrome.runtime.sendMessage({
           type: 'GET_CREDENTIALS_FOR_DOMAIN',
           payload: { domain },
         });
 
+        console.log(`[VaultSync Autofill] Credentials response:`, response);
         if (response?.items?.length > 0) {
           showAutofillBubble(field, response.items.length);
+        } else {
+          console.log(`[VaultSync Autofill] No credentials found for domain: ${domain}`);
         }
-      } catch {
+      } catch (err) {
+        console.error('[VaultSync Autofill] Error checking credentials:', err);
         // Service worker might not be ready
       }
     }
@@ -766,7 +791,8 @@ function setupFocusListeners() {
 
 // Run on page load
 function init() {
-  console.log('[VaultSync Autofill] Initializing content script autofill engine...');
+  console.log('[VaultSync] Content script loaded:', window.location.hostname);
+
   injectStyles();
   interceptFormSubmissions();
   setupFocusListeners();
@@ -863,11 +889,26 @@ chrome.runtime.onMessage.addListener((message: { type: string; payload?: unknown
   return true;
 });
 
-// Keyboard shortcut (Ctrl+Shift+L)
+// Keyboard shortcut (Ctrl+Shift+L) - Scan for login forms
 document.addEventListener('keydown', (e) => {
   if (e.ctrlKey && e.shiftKey && e.key === 'L') {
     e.preventDefault();
     scanForLoginForms();
+  }
+});
+
+// Keyboard shortcut (Ctrl+Shift+S) - Manual credential capture
+document.addEventListener('keydown', (e) => {
+  if (e.ctrlKey && e.shiftKey && e.key === 'S') {
+    e.preventDefault();
+    console.log('[VaultSync Autofill] Manual credential capture triggered (Ctrl+Shift+S)');
+    const allFields = detectLoginFields();
+    console.log('[VaultSync Autofill] Manual capture - detected fields:', allFields.map(f => ({ type: f.fieldType, hasValue: !!f.element.value })));
+    if (allFields.some(f => f.fieldType === 'password' && f.element.value)) {
+      captureCredentialsFromFields(allFields);
+    } else {
+      console.log('[VaultSync Autofill] Manual capture - no password field with value found');
+    }
   }
 });
 

@@ -16,12 +16,10 @@ export default defineConfig({
       input: {
         sidepanel: resolve(__dirname, 'sidepanel/index.html'),
         'service-worker': resolve(__dirname, 'src/service-worker.ts'),
-        'content/autofill': resolve(__dirname, 'src/content/autofill.ts'),
       },
       output: {
         entryFileNames: (chunk) => {
           if (chunk.name === 'service-worker') return 'service-worker.js';
-          if (chunk.name === 'content/autofill') return 'content/autofill.js';
           return 'sidepanel/[name].js';
         },
       },
@@ -35,3 +33,4 @@ export default defineConfig({
     }),
   },
 });
+

@@ -87,6 +87,11 @@ async function handleMessage(
       return getCredentialsForDomain(domain);
     }
 
+    case 'AUTOFILL_CREDENTIALS_FOR_DOMAIN': {
+      const { domain } = message.payload as { domain: string };
+      return autofillCredentialsForDomain(domain);
+    }
+
     case 'CHECK_CREDENTIALS_EXIST': {
       const { domain, username, password } = message.payload as { domain: string; username: string; password: string };
       return checkCredentialsExist(domain, username, password);
@@ -210,6 +215,41 @@ async function getCredentialsForDomain(domain: string) {
     return { items: data };
   } catch {
     return { items: [] };
+  }
+}
+
+// ---- Decrypt & Return Credentials for Autofill (content script) ----
+async function autofillCredentialsForDomain(domain: string) {
+  try {
+    const keyResult = await chrome.storage.session.get(['vaultKey']);
+    if (!keyResult.vaultKey) {
+      return { success: false, locked: true };
+    }
+
+    const { data, error } = await supabase
+      .from('vault_items')
+      .select('id, encrypted_data, iv')
+      .eq('domain', domain);
+
+    if (error || !data || data.length === 0) {
+      return { success: false, noItems: true };
+    }
+
+    const keyBytes = base64ToUint8Array(keyResult.vaultKey);
+    const item = data[0];
+    const decrypted = await decryptObject<{ username: string; password: string }>(
+      { ciphertext: item.encrypted_data, iv: item.iv },
+      keyBytes
+    );
+
+    return {
+      success: true,
+      username: decrypted.username,
+      password: decrypted.password,
+    };
+  } catch (e) {
+    console.error('[VaultSync SW] Autofill decrypt failed:', e);
+    return { success: false, error: String(e) };
   }
 }
 
@@ -572,4 +612,5 @@ chrome.runtime.onStartup.addListener(async () => {
   }
 });
 
+console.log('=== VAULTSYNC SERVICE WORKER INITIALIZED ===');
 console.log('[VaultSync] Service worker initialized');
