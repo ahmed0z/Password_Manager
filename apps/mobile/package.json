@@ -1,6 +1,6 @@
 {
   "name": "@vaultsync/mobile",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
@@ -11,6 +11,7 @@
     "lint": "eslint ."
   },
   "dependencies": {
+    "@expo/metro-runtime": "~6.1.2",
     "@supabase/supabase-js": "^2.49.0",
     "@vaultsync/core": "workspace:*",
     "expo": "~54.0.0",
