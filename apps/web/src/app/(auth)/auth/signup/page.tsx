@@ -1,10 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Shield, Eye, EyeOff, Mail, Lock, ArrowRight, Loader2, Info, Check, X } from 'lucide-react';
-import { signUp, estimateStrength, uint8ArrayToBase64 } from '@vaultsync/core';
+import { signUp, getSession, estimateStrength, uint8ArrayToBase64 } from '@vaultsync/core';
 
 export default function SignUpPage() {
   const router = useRouter();
@@ -15,6 +15,18 @@ export default function SignUpPage() {
   const [passwordFocused, setPasswordFocused] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // Automatically redirect if already signed in and vault key exists
+  useEffect(() => {
+    const checkActiveSession = async () => {
+      const session = await getSession();
+      const hasKey = localStorage.getItem('vaultsync-vault-key');
+      if (session && hasKey) {
+        router.replace('/vault');
+      }
+    };
+    checkActiveSession();
+  }, [router]);
 
   const strength = estimateStrength(masterPassword);
   const strengthColors = ['var(--strength-0)', 'var(--strength-1)', 'var(--strength-2)', 'var(--strength-3)', 'var(--strength-4)'];

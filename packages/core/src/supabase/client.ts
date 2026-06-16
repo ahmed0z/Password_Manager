@@ -19,6 +19,12 @@ export function setSupabaseStorageAdapter(adapter: {
   customStorageAdapter = adapter;
 }
 
+export const coreStorage = {
+  getItem: (key: string): Promise<string | null> => universalStorageAdapter.getItem(key),
+  setItem: (key: string, value: string): Promise<void> => universalStorageAdapter.setItem(key, value),
+  removeItem: (key: string): Promise<void> => universalStorageAdapter.removeItem(key),
+};
+
 /**
  * A universal storage adapter that dynamically switches to chrome.storage.local
  * when executed inside the Chrome Extension environment.

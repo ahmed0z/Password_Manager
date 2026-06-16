@@ -43,15 +43,66 @@ export default function VaultLayout({ children }: { children: React.ReactNode })
       const session = await getSession();
       if (!session) {
         router.replace('/auth/login');
+        return;
+      }
+      // Check if session has already expired on cold load
+      const autolockMinutes = parseInt(localStorage.getItem('vaultsync-autolock') || '30', 10);
+      const lastActivityStr = localStorage.getItem('vaultsync-last-activity');
+      if (autolockMinutes > 0 && lastActivityStr) {
+        const lastActivity = parseInt(lastActivityStr, 10);
+        if (Date.now() - lastActivity > autolockMinutes * 60 * 1000) {
+          console.log('[VaultSync] Auto-lock expired on startup');
+          await signOut();
+          localStorage.removeItem('vaultsync-vault-key');
+          localStorage.removeItem('vaultsync-vault-salt');
+          router.replace('/auth/login');
+        }
       }
     };
     checkAuth();
   }, [router]);
 
+  // Monitor user activity and handle auto-lock
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const updateActivity = () => {
+      localStorage.setItem('vaultsync-last-activity', Date.now().toString());
+    };
+
+    // Initialize activity on mount
+    updateActivity();
+
+    const events = ['mousedown', 'keydown', 'click', 'scroll', 'touchstart'];
+    events.forEach((ev) => window.addEventListener(ev, updateActivity));
+
+    const interval = setInterval(async () => {
+      const autolockMinutes = parseInt(localStorage.getItem('vaultsync-autolock') || '30', 10);
+      if (autolockMinutes === 0) return; // 'Never'
+
+      const lastActivityStr = localStorage.getItem('vaultsync-last-activity');
+      if (lastActivityStr) {
+        const lastActivity = parseInt(lastActivityStr, 10);
+        if (Date.now() - lastActivity > autolockMinutes * 60 * 1000) {
+          console.log('[VaultSync] Auto-lock triggered due to inactivity');
+          await signOut();
+          localStorage.removeItem('vaultsync-vault-key');
+          localStorage.removeItem('vaultsync-vault-salt');
+          router.replace('/auth/login');
+        }
+      }
+    }, 10000); // Check every 10 seconds
+
+    return () => {
+      events.forEach((ev) => window.removeEventListener(ev, updateActivity));
+      clearInterval(interval);
+    };
+  }, [router]);
+
   const handleSignOut = async () => {
     await signOut();
-    sessionStorage.removeItem('vaultsync-vault-key');
-    sessionStorage.removeItem('vaultsync-vault-salt');
+    localStorage.removeItem('vaultsync-vault-key');
+    localStorage.removeItem('vaultsync-vault-salt');
     router.replace('/auth/login');
   };
 

@@ -3,7 +3,7 @@
 // Syncs Chrome browser bookmarks with encryption.
 // ============================================================================
 
-import { getSupabaseClient } from './client';
+import { getSupabaseClient, coreStorage } from './client';
 import { encryptObject, decryptObject } from '../crypto/encrypt';
 import type { Bookmark, DecryptedBookmark } from '../types';
 
@@ -72,13 +72,35 @@ export async function getBookmarks(
   vaultKey: Uint8Array
 ): Promise<Array<Bookmark & { decrypted: DecryptedBookmark }>> {
   const supabase = getSupabaseClient();
+  let data: Bookmark[] | null = null;
 
-  const { data, error } = await supabase
-    .from('bookmarks')
-    .select('*')
-    .order('sort_order', { ascending: true });
+  try {
+    const { data: fetchData, error } = await supabase
+      .from('bookmarks')
+      .select('*')
+      .order('sort_order', { ascending: true });
 
-  if (error) throw new Error(`Failed to fetch bookmarks: ${error.message}`);
+    if (error) throw error;
+    data = fetchData;
+
+    // Cache the encrypted bookmarks locally
+    if (data) {
+      await coreStorage.setItem('vaultsync-cached-bookmarks', JSON.stringify(data));
+    }
+  } catch (err) {
+    console.warn('[VaultSync] Fetching bookmarks failed. Falling back to local offline cache.', err);
+    const cached = await coreStorage.getItem('vaultsync-cached-bookmarks');
+    if (cached) {
+      try {
+        data = JSON.parse(cached);
+      } catch {
+        throw new Error('Failed to parse offline bookmarks cache.');
+      }
+    } else {
+      throw new Error(`Offline and no local bookmarks cache available: ${(err as Error).message}`);
+    }
+  }
+
   if (!data) return [];
 
   return Promise.all(

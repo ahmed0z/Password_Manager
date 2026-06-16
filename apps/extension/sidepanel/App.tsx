@@ -126,6 +126,25 @@ export function SidePanel() {
       .catch(() => {});
   }, []);
 
+  // -- Track activity and send updates to service worker --
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof chrome === 'undefined' || !chrome.runtime) return;
+
+    const updateActivity = () => {
+      chrome.runtime.sendMessage({ type: 'UPDATE_ACTIVITY_TIMESTAMP' }).catch(() => {});
+    };
+
+    // Initialize on mount
+    updateActivity();
+
+    const events = ['mousedown', 'keydown', 'click', 'scroll', 'touchstart'];
+    events.forEach((ev) => window.addEventListener(ev, updateActivity));
+
+    return () => {
+      events.forEach((ev) => window.removeEventListener(ev, updateActivity));
+    };
+  }, []);
+
   // -- Dynamic tab domain tracking --
   useEffect(() => {
     if (typeof chrome === 'undefined' || !chrome.tabs) return;

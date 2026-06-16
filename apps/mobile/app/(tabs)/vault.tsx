@@ -61,6 +61,7 @@ export default function VaultScreen() {
   const getVaultKey = useCallback(async (): Promise<Uint8Array | null> => {
     const keyBase64 = await SecureStore.getItemAsync('vaultsync-vault-key');
     if (!keyBase64) return null;
+    await SecureStore.setItemAsync('vaultsync-last-activity', Date.now().toString());
     return base64ToUint8Array(keyBase64);
   }, []);
 

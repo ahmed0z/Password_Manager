@@ -2,7 +2,7 @@
 // VaultSync — Supabase Module Barrel Export
 // ============================================================================
 
-export { getSupabaseClient, resetSupabaseClient, setSupabaseStorageAdapter } from './client';
+export { getSupabaseClient, resetSupabaseClient, setSupabaseStorageAdapter, coreStorage } from './client';
 
 export {
   signUp,

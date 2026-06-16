@@ -1,10 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Shield, Eye, EyeOff, Mail, Lock, ArrowRight, Loader2 } from 'lucide-react';
-import { signIn, uint8ArrayToBase64 } from '@vaultsync/core';
+import { signIn, getSession, uint8ArrayToBase64 } from '@vaultsync/core';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -13,6 +13,18 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // Automatically redirect if already signed in and vault key exists
+  useEffect(() => {
+    const checkActiveSession = async () => {
+      const session = await getSession();
+      const hasKey = localStorage.getItem('vaultsync-vault-key');
+      if (session && hasKey) {
+        router.replace('/vault');
+      }
+    };
+    checkActiveSession();
+  }, [router]);
 
   const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 

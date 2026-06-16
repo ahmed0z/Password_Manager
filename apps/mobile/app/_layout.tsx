@@ -47,6 +47,39 @@ export default function RootLayout() {
   const appState = useRef(AppState.currentState);
 
   useEffect(() => {
+    // One-time startup check for session expiration on cold launch
+    const checkSessionOnStartup = async () => {
+      const lastActivityStr = await SecureStore.getItemAsync('vaultsync-last-activity');
+      const sessionTimeoutStr = await SecureStore.getItemAsync('vaultsync-session-timeout') || 'always';
+      
+      if (lastActivityStr && sessionTimeoutStr !== 'always') {
+        const lastActivity = parseInt(lastActivityStr, 10);
+        
+        const TIMEOUT_DURATIONS: Record<string, number> = {
+          '5m': 5 * 60 * 1000,
+          '15m': 15 * 60 * 1000,
+          '1h': 60 * 60 * 1000,
+          '12h': 12 * 60 * 60 * 1000,
+          '24h': 24 * 60 * 60 * 1000,
+          '2d': 2 * 24 * 60 * 60 * 1000,
+        };
+        const durationMs = TIMEOUT_DURATIONS[sessionTimeoutStr] || 0;
+        
+        if (durationMs > 0 && Date.now() - lastActivity > durationMs) {
+          console.log('[VaultSync] Session expired since last run. Signing out.');
+          await SecureStore.deleteItemAsync('vaultsync-vault-key');
+          await SecureStore.deleteItemAsync('vaultsync-vault-salt');
+          await signOut();
+          router.replace('/(auth)/login');
+          return;
+        }
+      }
+      // Initialize/refresh last activity on startup
+      await SecureStore.setItemAsync('vaultsync-last-activity', Date.now().toString());
+    };
+
+    checkSessionOnStartup();
+
     const subscription = AppState.addEventListener('change', async (nextAppState) => {
       if (
         appState.current.match(/inactive|background/) &&

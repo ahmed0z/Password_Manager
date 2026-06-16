@@ -150,19 +150,19 @@ async function handleMessage(
 
     case 'STORE_VAULT_KEY': {
       const { keyBase64, salt } = message.payload as { keyBase64: string; salt: string };
-      await chrome.storage.session.set({ vaultKey: keyBase64, vaultSalt: salt });
+      await chrome.storage.local.set({ vaultKey: keyBase64, vaultSalt: salt });
       // Record the last activity timestamp for session timeout tracking
       await chrome.storage.local.set({ lastActivityTimestamp: Date.now() });
       return { success: true };
     }
 
     case 'GET_VAULT_KEY': {
-      const result = await chrome.storage.session.get(['vaultKey', 'vaultSalt']);
+      const result = await chrome.storage.local.get(['vaultKey', 'vaultSalt']);
       return result;
     }
 
     case 'CLEAR_VAULT_KEY': {
-      await chrome.storage.session.remove(['vaultKey', 'vaultSalt']);
+      await chrome.storage.local.remove(['vaultKey', 'vaultSalt']);
       await chrome.storage.local.remove(['lastActivityTimestamp']);
       return { success: true };
     }
@@ -221,7 +221,7 @@ async function getCredentialsForDomain(domain: string) {
 // ---- Decrypt & Return Credentials for Autofill (content script) ----
 async function autofillCredentialsForDomain(domain: string) {
   try {
-    const keyResult = await chrome.storage.session.get(['vaultKey']);
+    const keyResult = await chrome.storage.local.get(['vaultKey']);
     if (!keyResult.vaultKey) {
       return { success: false, locked: true };
     }
@@ -266,7 +266,7 @@ async function checkCredentialsExist(domain: string, username: string, newPasswo
     }
 
     // Decrypt to check username match and password difference
-    const keyResult = await chrome.storage.session.get(['vaultKey']);
+    const keyResult = await chrome.storage.local.get(['vaultKey']);
     if (!keyResult.vaultKey) {
       // Vault is locked — we can't decrypt to compare, but items exist for this domain.
       // Return exists: false so the save toast shows (user can still save).
@@ -307,7 +307,7 @@ async function saveCredentials(creds: {
   username: string; password: string; domain: string; url: string; title: string;
 }) {
   try {
-    const keyResult = await chrome.storage.session.get(['vaultKey']);
+    const keyResult = await chrome.storage.local.get(['vaultKey']);
     if (!keyResult.vaultKey) throw new Error('Vault locked');
 
     const keyBytes = base64ToUint8Array(keyResult.vaultKey);
@@ -347,7 +347,7 @@ async function updateCredentials(creds: {
   username: string; password: string; domain: string; url: string; title: string;
 }) {
   try {
-    const keyResult = await chrome.storage.session.get(['vaultKey']);
+    const keyResult = await chrome.storage.local.get(['vaultKey']);
     if (!keyResult.vaultKey) throw new Error('Vault locked');
 
     const keyBytes = base64ToUint8Array(keyResult.vaultKey);
@@ -416,7 +416,7 @@ async function updateCredentialById(payload: {
   title: string;
 }) {
   try {
-    const keyResult = await chrome.storage.session.get(['vaultKey']);
+    const keyResult = await chrome.storage.local.get(['vaultKey']);
     if (!keyResult.vaultKey) throw new Error('Vault locked');
 
     const keyBytes = base64ToUint8Array(keyResult.vaultKey);
@@ -584,10 +584,10 @@ chrome.alarms.onAlarm.addListener(async (alarm: any) => {
     try {
       const expired = await isSessionExpired();
       if (expired) {
-        const keyResult = await chrome.storage.session.get(['vaultKey']);
+        const keyResult = await chrome.storage.local.get(['vaultKey']);
         if (keyResult.vaultKey) {
           console.log('[VaultSync] Session timeout expired — clearing vault key');
-          await chrome.storage.session.remove(['vaultKey', 'vaultSalt']);
+          await chrome.storage.local.remove(['vaultKey', 'vaultSalt']);
           await chrome.storage.local.remove(['lastActivityTimestamp']);
           // Notify side panels to show the login screen
           chrome.runtime.sendMessage({ type: 'SESSION_EXPIRED' }).catch(() => {});

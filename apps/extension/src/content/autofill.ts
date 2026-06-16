@@ -4,8 +4,6 @@
 // No external imports — all crypto is handled by the service worker.
 // ============================================================================
 
-declare const chrome: any;
-
 interface DetectedField {
   element: HTMLInputElement;
   fieldType: 'username' | 'email' | 'password' | 'unknown';

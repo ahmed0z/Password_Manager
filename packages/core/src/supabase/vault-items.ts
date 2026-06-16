@@ -4,7 +4,7 @@
 // Uses Uint8Array vault key (from @noble/ciphers engine) — no CryptoKey objects.
 // ============================================================================
 
-import { getSupabaseClient } from './client';
+import { getSupabaseClient, coreStorage } from './client';
 import { encryptObject, decryptObject } from '../crypto/encrypt';
 import type {
   VaultItem,
@@ -63,13 +63,35 @@ export async function getVaultItems(
   vaultKey: Uint8Array
 ): Promise<Array<VaultItem & { decrypted: DecryptedVaultItem }>> {
   const supabase = getSupabaseClient();
+  let data: VaultItem[] | null = null;
 
-  const { data, error } = await supabase
-    .from('vault_items')
-    .select('*')
-    .order('updated_at', { ascending: false });
+  try {
+    const { data: fetchData, error } = await supabase
+      .from('vault_items')
+      .select('*')
+      .order('updated_at', { ascending: false });
 
-  if (error) throw new Error(`Failed to fetch vault items: ${error.message}`);
+    if (error) throw error;
+    data = fetchData;
+
+    // Cache the encrypted items locally
+    if (data) {
+      await coreStorage.setItem('vaultsync-cached-vault-items', JSON.stringify(data));
+    }
+  } catch (err) {
+    console.warn('[VaultSync] Fetching vault items failed. Falling back to local offline cache.', err);
+    const cached = await coreStorage.getItem('vaultsync-cached-vault-items');
+    if (cached) {
+      try {
+        data = JSON.parse(cached);
+      } catch {
+        throw new Error('Failed to parse offline cache.');
+      }
+    } else {
+      throw new Error(`Offline and no local cache available: ${(err as Error).message}`);
+    }
+  }
+
   if (!data) return [];
 
   const decrypted = await Promise.all(
