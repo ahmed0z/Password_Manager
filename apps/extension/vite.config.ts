@@ -29,7 +29,7 @@ export default defineConfig({
     'process.env': JSON.stringify({
       SUPABASE_URL: 'https://nbzrgenezurnecdmikxl.supabase.co',
       SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5ienJnZW5lenVybmVjZG1pa3hsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA3Mjc1NzksImV4cCI6MjA5NjMwMzU3OX0.y1tmfWvIWXaeLbCFJHMJk7fggQhSrCcbXyqWxLWHj1w',
-      ENCRYPTION_ITERATIONS: '600000',
+      ENCRYPTION_ITERATIONS: '10000',
     }),
   },
 });

@@ -1,15 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import {
   generateSalt,
-  deriveVaultKey,
-  deriveAuthKey,
-  createRecoveryKey,
-  recoverVaultKey,
+  deriveVaultKeyBytes,
+  deriveAuthKeyHex,
+  createRecoveryKeyBlob,
+  recoverVaultKeyBytes,
 } from './vault-key';
 import { encrypt, decrypt, encryptObject, decryptObject } from './encrypt';
 
-// Mock Web Crypto API since standard Node might require polyfills or global crypto
-// In H2 2026, globalThis.crypto is fully standard in modern Node versions.
 describe('VaultSync Cryptographic Engine', () => {
   it('should generate unique salts', () => {
     const salt1 = generateSalt();
@@ -23,10 +21,10 @@ describe('VaultSync Cryptographic Engine', () => {
     const password = 'SuperSecureMasterPassword123!';
     const salt = generateSalt();
 
-    const vaultKey = await deriveVaultKey(password, salt);
-    const authKey = await deriveAuthKey(password, salt);
+    const vaultKey = await deriveVaultKeyBytes(password, salt);
+    const authKey = await deriveAuthKeyHex(password, salt);
 
-    expect(vaultKey).toBeInstanceOf(CryptoKey);
+    expect(vaultKey).toBeInstanceOf(Uint8Array);
     expect(typeof authKey).toBe('string');
     expect(authKey.length).toBe(64); // 256-bit key in hex is 64 chars
   });
@@ -36,7 +34,7 @@ describe('VaultSync Cryptographic Engine', () => {
     const salt = generateSalt();
     const plaintext = 'This is a super secret message.';
 
-    const vaultKey = await deriveVaultKey(password, salt);
+    const vaultKey = await deriveVaultKeyBytes(password, salt);
     const encrypted = await encrypt(plaintext, vaultKey);
 
     expect(encrypted.ciphertext).toBeDefined();
@@ -55,7 +53,7 @@ describe('VaultSync Cryptographic Engine', () => {
       url: 'https://example.com',
     };
 
-    const vaultKey = await deriveVaultKey(password, salt);
+    const vaultKey = await deriveVaultKeyBytes(password, salt);
     const encrypted = await encryptObject(payload, vaultKey);
     const decrypted = await decryptObject<{ username: string; url: string }>(encrypted, vaultKey);
 
@@ -69,17 +67,17 @@ describe('VaultSync Cryptographic Engine', () => {
     const salt = generateSalt();
 
     // 1. User sets up vault key during registration
-    const vaultKey = await deriveVaultKey(masterPassword, salt);
+    const vaultKey = await deriveVaultKeyBytes(masterPassword, salt);
 
     // 2. Generate encrypted recovery key blob
-    const recoveryBlob = await createRecoveryKey(vaultKey, email, masterPassword);
+    const recoveryBlob = await createRecoveryKeyBlob(vaultKey, email, masterPassword);
 
     expect(recoveryBlob.encryptedRecoveryKey).toBeDefined();
     expect(recoveryBlob.recoveryIv).toBeDefined();
     expect(recoveryBlob.recoverySalt).toBeDefined();
 
     // 3. User recovers their vault key using email and master password
-    const recoveredVaultKey = await recoverVaultKey(
+    const recoveredVaultKey = await recoverVaultKeyBytes(
       recoveryBlob.encryptedRecoveryKey,
       recoveryBlob.recoveryIv,
       recoveryBlob.recoverySalt,
@@ -87,7 +85,7 @@ describe('VaultSync Cryptographic Engine', () => {
       masterPassword
     );
 
-    expect(recoveredVaultKey).toBeInstanceOf(CryptoKey);
+    expect(recoveredVaultKey).toBeInstanceOf(Uint8Array);
 
     // 4. Verify recovered key works on encrypted data
     const message = 'Recovery testing message';

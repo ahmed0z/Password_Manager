@@ -11,9 +11,39 @@ import { sha256 } from '@noble/hashes/sha256';
 // Constants — single source of truth, never changes
 // ---------------------------------------------------------------------------
 
-const PBKDF2_ITERATIONS = 600_000; // OWASP 2025 recommendation for SHA-256
+declare const process: any;
+
+// ---------------------------------------------------------------------------
+// Constants — single source of truth, never changes
+// ---------------------------------------------------------------------------
+
 const KEY_LENGTH = 32;             // 256 bits
 const SALT_LENGTH = 16;            // 128-bit salt
+
+// ---------------------------------------------------------------------------
+// Helper to get PBKDF2 iterations dynamically based on environment
+// ---------------------------------------------------------------------------
+
+export function getPBKDF2Iterations(): number {
+  let val: string | undefined = undefined;
+  try {
+    val = process.env.ENCRYPTION_ITERATIONS;
+  } catch {}
+  try {
+    if (!val) val = process.env.NEXT_PUBLIC_ENCRYPTION_ITERATIONS;
+  } catch {}
+  try {
+    if (!val) val = process.env.EXPO_PUBLIC_ENCRYPTION_ITERATIONS;
+  } catch {}
+
+  if (val) {
+    const parsed = parseInt(val, 10);
+    if (!isNaN(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+  return 600_000; // OWASP 2025 recommendation for SHA-256
+}
 
 // ---------------------------------------------------------------------------
 // Salt Generation
@@ -49,7 +79,7 @@ export async function deriveVaultKeyBytes(
   const passwordBytes = new TextEncoder().encode(masterPassword);
   const salt = base64ToUint8Array(saltBase64);
   return pbkdf2Async(sha256, passwordBytes, salt, {
-    c: PBKDF2_ITERATIONS,
+    c: getPBKDF2Iterations(),
     dkLen: KEY_LENGTH,
   });
 }
@@ -70,7 +100,7 @@ export async function deriveAuthKeyHex(
   const passwordBytes = new TextEncoder().encode(masterPassword);
   const salt = base64ToUint8Array(authSaltBase64);
   const keyBytes = await pbkdf2Async(sha256, passwordBytes, salt, {
-    c: PBKDF2_ITERATIONS,
+    c: getPBKDF2Iterations(),
     dkLen: KEY_LENGTH,
   });
   return uint8ArrayToHex(keyBytes);

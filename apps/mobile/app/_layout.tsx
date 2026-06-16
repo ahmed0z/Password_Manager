@@ -5,7 +5,21 @@ import * as SecureStore from 'expo-secure-store';
 import { setSupabaseStorageAdapter, signOut } from '@vaultsync/core';
 import { useEffect, useRef } from 'react';
 
+import * as Crypto from 'expo-crypto';
+
 if (Platform.OS !== 'web') {
+  // Polyfill global.crypto for native mobile environment
+  if (typeof global.crypto === 'undefined') {
+    (global as any).crypto = {
+      getRandomValues: <T extends ArrayBufferView | null>(array: T): T => {
+        if (array) {
+          return Crypto.getRandomValues(array as any) as any;
+        }
+        return array;
+      },
+    };
+  }
+
   setSupabaseStorageAdapter({
     getItem: (key) => SecureStore.getItemAsync(key),
     setItem: (key, value) => SecureStore.setItemAsync(key, value),
