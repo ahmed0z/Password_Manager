@@ -19,6 +19,17 @@ chrome.action.onClicked.addListener(async (tab: chrome.tabs.Tab) => {
   }
 });
 
+// ---- Tab Change & URL Update Listeners (for Badge Updates) ----
+chrome.tabs.onActivated.addListener((activeInfo) => {
+  updateBadgeForTab(activeInfo.tabId).catch(() => {});
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.url || changeInfo.status === 'complete') {
+    updateBadgeForTab(tabId, tab.url).catch(() => {});
+  }
+});
+
 // ---- Staged Pending Credentials (for Save/Update Toast on Page Navigation) ----
 interface PendingCreds {
   username: string;
@@ -103,7 +114,9 @@ async function handleMessage(
       };
       // Clear pending credentials for this tab upon saving
       if (sender.tab?.id) pendingCredentialsMap.delete(sender.tab.id);
-      return saveCredentials(creds);
+      const res = await saveCredentials(creds);
+      updateBadgeForActiveTab().catch(() => {});
+      return res;
     }
 
     case 'UPDATE_CREDENTIALS': {
@@ -112,7 +125,9 @@ async function handleMessage(
       };
       // Clear pending credentials for this tab upon updating
       if (sender.tab?.id) pendingCredentialsMap.delete(sender.tab.id);
-      return updateCredentials(creds);
+      const res = await updateCredentials(creds);
+      updateBadgeForActiveTab().catch(() => {});
+      return res;
     }
 
     case 'UPDATE_CREDENTIAL_BY_ID': {
@@ -120,7 +135,9 @@ async function handleMessage(
         id: string; username: string; password: string; domain: string; url: string; title: string;
       };
       if (sender.tab?.id) pendingCredentialsMap.delete(sender.tab.id);
-      return updateCredentialById(payload);
+      const res = await updateCredentialById(payload);
+      updateBadgeForActiveTab().catch(() => {});
+      return res;
     }
 
     case 'SYNC_BOOKMARKS': {
@@ -145,6 +162,7 @@ async function handleMessage(
         await supabase.auth.signOut();
         console.log('[VaultSync SW] Auth session signed out / cleared');
       }
+      updateBadgeForActiveTab().catch(() => {});
       return { success: true };
     }
 
@@ -153,6 +171,7 @@ async function handleMessage(
       await chrome.storage.local.set({ vaultKey: keyBase64, vaultSalt: salt });
       // Record the last activity timestamp for session timeout tracking
       await chrome.storage.local.set({ lastActivityTimestamp: Date.now() });
+      updateBadgeForActiveTab().catch(() => {});
       return { success: true };
     }
 
@@ -164,6 +183,7 @@ async function handleMessage(
     case 'CLEAR_VAULT_KEY': {
       await chrome.storage.local.remove(['vaultKey', 'vaultSalt']);
       await chrome.storage.local.remove(['lastActivityTimestamp']);
+      updateBadgeForActiveTab().catch(() => {});
       return { success: true };
     }
 
@@ -195,6 +215,11 @@ async function handleMessage(
           await chrome.sidePanel.open({ tabId: sender.tab.id });
         } catch { /* Side panel may already be open */ }
       }
+      return { success: true };
+    }
+
+    case 'REFRESH_BADGE': {
+      await updateBadgeForActiveTab();
       return { success: true };
     }
 
@@ -363,28 +388,35 @@ async function updateCredentials(creds: {
       return saveCredentials(creds);
     }
 
-    // Find matching username
-    let targetId = items[0].id;
+    // Find matching username and get existing notes
+    let targetId: string | null = null;
+    let existingNotes = '';
     for (const item of items) {
       try {
-        const dec = await decryptObject<{ username: string }>(
+        const dec = await decryptObject<{ username: string; notes?: string }>(
           { ciphertext: item.encrypted_data, iv: item.iv },
           keyBytes
         );
         if (dec.username === creds.username) {
           targetId = item.id;
+          existingNotes = dec.notes || '';
           break;
         }
       } catch { /* continue */ }
     }
 
-    // Re-encrypt with new password
+    if (!targetId) {
+      // No matching username for this domain, insert new entry
+      return saveCredentials(creds);
+    }
+
+    // Re-encrypt with new password, preserving notes
     const payload = {
       title: creds.title,
       username: creds.username,
       password: creds.password,
       url: creds.url,
-      notes: '',
+      notes: existingNotes,
     };
 
     const encrypted = await encryptObject(payload, keyBytes);
@@ -414,6 +446,7 @@ async function updateCredentialById(payload: {
   domain: string;
   url: string;
   title: string;
+  notes?: string;
 }) {
   try {
     const keyResult = await chrome.storage.local.get(['vaultKey']);
@@ -444,7 +477,7 @@ async function updateCredentialById(payload: {
       username: payload.username,
       password: payload.password,
       url: payload.url,
-      notes: notes,
+      notes: payload.notes !== undefined ? payload.notes : notes,
     };
 
     const encrypted = await encryptObject(fullPayload, keyBytes);
@@ -476,6 +509,87 @@ async function syncBrowserBookmarks() {
     return { bookmarks: flatBookmarks, count: flatBookmarks.length };
   } catch (e) {
     return { error: 'Failed to read bookmarks' };
+  }
+}
+
+function getDomainFromUrl(url: string | undefined): string | null {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol.startsWith('http') || parsed.protocol.startsWith('https')) {
+      let hostname = parsed.hostname;
+      if (hostname.startsWith('www.')) {
+        hostname = hostname.substring(4);
+      }
+      return hostname;
+    }
+  } catch {}
+  return null;
+}
+
+async function updateBadgeForTab(tabId: number, url?: string) {
+  try {
+    if (!url) {
+      const tab = await chrome.tabs.get(tabId);
+      url = tab.url;
+    }
+
+    const domain = getDomainFromUrl(url);
+    if (!domain || isLocalOrInvalidDomain(domain)) {
+      chrome.action.setBadgeText({ text: '', tabId });
+      return;
+    }
+
+    // Check if user is logged in
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      chrome.action.setBadgeText({ text: '', tabId });
+      return;
+    }
+
+    // Query matching credentials count from database
+    const { data, error } = await supabase
+      .from('vault_items')
+      .select('id')
+      .eq('domain', domain);
+
+    if (error || !data) {
+      chrome.action.setBadgeText({ text: '', tabId });
+      return;
+    }
+
+    const count = data.length;
+    if (count > 0) {
+      // Show number of saved passwords in sleek red badge (LastPass style)
+      chrome.action.setBadgeText({ text: count.toString(), tabId });
+      chrome.action.setBadgeBackgroundColor({ color: '#E53935', tabId }); // sleek red
+      if (chrome.action.setBadgeTextColor) {
+        chrome.action.setBadgeTextColor({ color: '#FFFFFF', tabId });
+      }
+    } else {
+      // Show "!" badge in slate gray badge
+      chrome.action.setBadgeText({ text: '!', tabId });
+      chrome.action.setBadgeBackgroundColor({ color: '#64748B', tabId }); // sleek slate gray
+      if (chrome.action.setBadgeTextColor) {
+        chrome.action.setBadgeTextColor({ color: '#FFFFFF', tabId });
+      }
+    }
+  } catch (err) {
+    console.error('[VaultSync SW] Error updating badge:', err);
+    try {
+      chrome.action.setBadgeText({ text: '', tabId });
+    } catch {}
+  }
+}
+
+async function updateBadgeForActiveTab() {
+  try {
+    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tabs && tabs[0] && tabs[0].id) {
+      await updateBadgeForTab(tabs[0].id, tabs[0].url);
+    }
+  } catch (err) {
+    console.error('[VaultSync SW] Error updating active tab badge:', err);
   }
 }
 
@@ -568,6 +682,9 @@ chrome.alarms.onAlarm.addListener(async (alarm: any) => {
         chrome.runtime.sendMessage({ type: 'VAULT_DATA_CHANGED' }).catch(() => {
           // No listeners — side panel is closed, ignore
         });
+        updateBadgeForActiveTab().catch(() => {});
+      } else {
+        chrome.action.setBadgeText({ text: '' }).catch(() => {});
       }
     } catch { /* ignore */ }
   }
@@ -591,6 +708,7 @@ chrome.alarms.onAlarm.addListener(async (alarm: any) => {
           await chrome.storage.local.remove(['lastActivityTimestamp']);
           // Notify side panels to show the login screen
           chrome.runtime.sendMessage({ type: 'SESSION_EXPIRED' }).catch(() => {});
+          chrome.action.setBadgeText({ text: '' }).catch(() => {});
         }
       }
     } catch { /* ignore */ }
@@ -606,11 +724,15 @@ chrome.runtime.onStartup.addListener(async () => {
       // Proactively refresh the token so it's valid for the next side panel open
       await supabase.auth.refreshSession();
       console.log('[VaultSync] Session refreshed on startup');
+      updateBadgeForActiveTab().catch(() => {});
     }
   } catch (e) {
     console.warn('[VaultSync] Session refresh on startup failed:', e);
   }
 });
+
+// Initial badge update on service worker startup
+updateBadgeForActiveTab().catch(() => {});
 
 console.log('=== VAULTSYNC SERVICE WORKER INITIALIZED ===');
 console.log('[VaultSync] Service worker initialized');

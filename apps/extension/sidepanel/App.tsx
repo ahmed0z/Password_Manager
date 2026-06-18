@@ -47,6 +47,7 @@ interface VaultEntry {
   favicon?: string;
   folderId?: string | null;
   passwordDecrypted: string;
+  notes?: string;
 }
 
 interface BookmarkEntry {
@@ -102,7 +103,7 @@ export function SidePanel() {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<VaultEntry | null>(null);
   const [isEditing, setIsEditing] = useState(false);
-  const [editForm, setEditForm] = useState({ title: '', username: '', password: '', domain: '' });
+  const [editForm, setEditForm] = useState({ title: '', username: '', password: '', domain: '', notes: '' });
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
 
   const [vaultKey, setVaultKey] = useState<Uint8Array | null>(null);
@@ -257,6 +258,7 @@ export function SidePanel() {
           favicon: i.favicon_url || (domain ? getFaviconUrl(domain) : undefined),
           folderId: i.folder_id,
           passwordDecrypted: i.decrypted.password,
+          notes: i.decrypted.notes || '',
         };
       }));
 
@@ -287,6 +289,8 @@ export function SidePanel() {
       }
       setBookmarkFolderTree(buildBookmarkFolderTree(Array.from(paths)));
 
+      // Refresh badge to update extension icon notifications
+      chrome.runtime.sendMessage({ type: 'REFRESH_BADGE' }).catch(() => {});
     } catch (e) {
       console.error('[VaultSync] Failed to load data:', e);
     }
@@ -525,9 +529,46 @@ export function SidePanel() {
     };
     chrome.runtime.onMessage.addListener(handleMessage);
 
+    // Setup Supabase Realtime subscriptions
+    let vaultItemsSub: any = null;
+    let foldersSub: any = null;
+    let bookmarksSub: any = null;
+
+    const setupRealtime = async () => {
+      try {
+        const session = await getSession();
+        if (!session || !session.user) return;
+        const userId = session.user.id;
+
+        const { subscribeToVaultItems, subscribeToFolders, subscribeToBookmarks } = await import('@vaultsync/core');
+        
+        vaultItemsSub = subscribeToVaultItems(userId, () => {
+          console.log('[Extension Realtime] Vault items updated');
+          loadAllData(vaultKey);
+        });
+
+        foldersSub = subscribeToFolders(userId, () => {
+          console.log('[Extension Realtime] Folders updated');
+          loadAllData(vaultKey);
+        });
+
+        bookmarksSub = subscribeToBookmarks(userId, () => {
+          console.log('[Extension Realtime] Bookmarks updated');
+          loadAllData(vaultKey);
+        });
+      } catch (err) {
+        console.error('[Extension Realtime] Failed to setup subscriptions:', err);
+      }
+    };
+
+    setupRealtime();
+
     return () => {
       if (refreshIntervalRef.current) clearInterval(refreshIntervalRef.current);
       chrome.runtime.onMessage.removeListener(handleMessage);
+      if (vaultItemsSub) vaultItemsSub.unsubscribe();
+      if (foldersSub) foldersSub.unsubscribe();
+      if (bookmarksSub) bookmarksSub.unsubscribe();
     };
   }, [vaultKey, loadAllData]);
 
@@ -571,7 +612,8 @@ export function SidePanel() {
           password: editForm.password,
           domain: editForm.domain,
           url: editForm.domain,
-          title: editForm.title
+          title: editForm.title,
+          notes: editForm.notes
         }
       });
       if (resp.error) throw new Error(resp.error);
@@ -591,7 +633,8 @@ export function SidePanel() {
       title: item.title,
       username: item.username,
       password: passwordDecrypted,
-      domain: item.domain
+      domain: item.domain,
+      notes: item.notes || ''
     });
     setIsEditing(false);
     setIsPasswordVisible(false);
@@ -837,54 +880,52 @@ export function SidePanel() {
             {currentDomain && (
               <>
                 <div style={s.sectionLabel}>This Site ({currentDomain})</div>
+                {domainItems.length > 0 && (
+                  domainItems.map(item => (
+                    <div
+                      key={item.id}
+                      className="premium-card"
+                      style={{ ...s.itemCard, border: `1px solid ${c.accent}33`, background: `${c.accent}0A` }}
+                      onClick={() => handleEditOpen(item, item.passwordDecrypted)}
+                    >
+                      <div style={s.favicon}>
+                        {getFaviconUrl(currentDomain) ? (
+                          <img src={getFaviconUrl(currentDomain)} width={20} height={20} alt="" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                        ) : (
+                          <Key size={14} color="#8a8f9e" />
+                        )}
+                      </div>
+                      <div style={s.itemInfo}>
+                        <div style={s.itemTitle}>{item.title}</div>
+                        <div style={s.itemSub}>{item.username}</div>
+                      </div>
+                      <button
+                        style={{ ...s.iconBtn, color: copiedId === item.id ? '#22c55e' : '#8a8f9e' }}
+                        onClick={(e) => { e.stopPropagation(); handleCopy(item.username, item.id); }}
+                      >
+                        {copiedId === item.id ? <Check size={14} /> : <Copy size={14} />}
+                      </button>
+                    </div>
+                  ))
+                )}
                 {isAdding ? (
                   <div style={{ ...s.itemCard, flexDirection: 'column', alignItems: 'stretch', gap: 8, background: 'rgba(92,224,214,0.08)' }}>
                     <input style={s.authInput} placeholder="Username" value={addUsername} onChange={(e) => setAddUsername(e.target.value)} />
                     <input style={s.authInput} type="password" placeholder="Password" value={addPassword} onChange={(e) => setAddPassword(e.target.value)} />
                     <div style={{ display: 'flex', gap: 8 }}>
-                      <button style={{ ...s.authBtn, height: 32, flex: 1 }} onClick={handleAdd} disabled={loading}>{loading ? 'Saving...' : 'Save'}</button>
-                      <button style={{ ...s.authBtn, height: 32, flex: 1, background: 'rgba(255,255,255,0.1)', color: '#f2f2f2' }} onClick={() => setIsAdding(false)}>Cancel</button>
+                      <button style={{ ...mStyles.saveBtn, height: 32, flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={handleAdd} disabled={loading}>{loading ? 'Saving...' : 'Save'}</button>
+                      <button style={{ ...mStyles.cancelBtn, height: 32, flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: 0 }} onClick={() => setIsAdding(false)}>Cancel</button>
                     </div>
                   </div>
                 ) : (
-                  <>
-                    {domainItems.length > 0 ? (
-                      domainItems.map(item => (
-                        <div
-                          key={item.id}
-                          className="premium-card"
-                          style={{ ...s.itemCard, border: `1px solid ${c.accent}33`, background: `${c.accent}0A` }}
-                          onClick={() => handleEditOpen(item, item.passwordDecrypted)}
-                        >
-                          <div style={s.favicon}>
-                            {getFaviconUrl(currentDomain) ? (
-                              <img src={getFaviconUrl(currentDomain)} width={20} height={20} alt="" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                            ) : (
-                              <Key size={14} color="#8a8f9e" />
-                            )}
-                          </div>
-                          <div style={s.itemInfo}>
-                            <div style={s.itemTitle}>{item.title}</div>
-                            <div style={s.itemSub}>{item.username}</div>
-                          </div>
-                          <button
-                            style={{ ...s.iconBtn, color: copiedId === item.id ? '#22c55e' : '#8a8f9e' }}
-                            onClick={(e) => { e.stopPropagation(); handleCopy(item.username, item.id); }}
-                          >
-                            {copiedId === item.id ? <Check size={14} /> : <Copy size={14} />}
-                          </button>
-                        </div>
-                      ))
-                    ) : null}
-                    <div style={{ ...s.itemCard, border: '1px solid rgba(92,224,214,0.15)', background: 'rgba(92,224,214,0.04)' }}>
-                      <div style={s.favicon}><Key size={16} color="#5ce0d6" /></div>
-                      <div style={s.itemInfo}>
-                        <div style={s.itemTitle}>New Credential</div>
-                        <div style={s.itemSub}>Add password for {currentDomain}</div>
-                      </div>
-                      <button style={s.iconBtn} onClick={() => setIsAdding(true)}><Plus size={14} color="#5ce0d6" /></button>
+                  <div style={{ ...s.itemCard, border: '1px solid rgba(92,224,214,0.15)', background: 'rgba(92,224,214,0.04)' }}>
+                    <div style={s.favicon}><Key size={16} color="#5ce0d6" /></div>
+                    <div style={s.itemInfo}>
+                      <div style={s.itemTitle}>New Credential</div>
+                      <div style={s.itemSub}>Add password for {currentDomain}</div>
                     </div>
-                  </>
+                    <button style={s.iconBtn} onClick={() => setIsAdding(true)}><Plus size={14} color="#5ce0d6" /></button>
+                  </div>
                 )}
               </>
             )}
@@ -1437,6 +1478,29 @@ export function SidePanel() {
                   value={editForm.domain}
                   onChange={(e) => setEditForm({ ...editForm, domain: e.target.value })}
                   readOnly={!isEditing}
+                />
+              </div>
+
+              {/* Notes Field */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <span style={{ fontSize: '10px', color: c.textSub, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Notes</span>
+                <textarea
+                  style={{
+                    ...s.authInput,
+                    background: isEditing ? c.inputBg : 'transparent',
+                    border: isEditing ? `1px solid ${c.inputBorder}` : 'none',
+                    padding: isEditing ? '8px 12px' : '4px 4px',
+                    height: isEditing ? 70 : 'auto',
+                    minHeight: isEditing ? 70 : 28,
+                    fontSize: '13px',
+                    color: c.textMain,
+                    resize: isEditing ? 'vertical' : 'none'
+                  }}
+                  value={editForm.notes}
+                  onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
+                  readOnly={!isEditing}
+                  rows={isEditing ? 3 : 1}
+                  placeholder={isEditing ? "Add notes..." : "No notes"}
                 />
               </div>
 

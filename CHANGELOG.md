@@ -4,6 +4,18 @@ All notable changes to the VaultSync password manager project are documented in 
 
 ---
 
+## [v1.0.8] - 2026-06-19
+
+### Added
+- **Extension Badge Notifications**: Implemented dynamic saved credentials badge indicators on the extension action icon. Shows a sleek red badge displaying the exact count of matching credentials for the active tab's domain, a gray `!` badge if no credentials exist, or no badge if logged out or browsing local/internal pages.
+- **Realtime Database Synchronization**: Integrated client-side Supabase Realtime postgres changes subscriptions across all three platforms (Web App, Chrome Extension Side Panel, and Mobile App screens) to listen for updates on `vault_items`, `folders`, and `bookmarks` tables, propagating changes instantly across all devices.
+
+### Fixed
+- **Web Modal Viewport Alignment**: Resolved layout bugs in dashboard page modals. Switched page transition animation from `fadeInUp` (which left a permanent `transform` containing block context) to `fadeIn`, fixing viewport-fixed sizing for `.modal-overlay`. Added `margin: auto` to `.modal-content` to prevent top-viewport overflow on shorter screens.
+- **Web Modal Animation Override**: Removed inline animation style (`scaleUp`) from `EditPasswordModal` to inherit global `.modal-content` transitions correctly.
+
+---
+
 ## [v1.0.7] - 2026-06-17
 
 ### Added

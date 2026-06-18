@@ -1,6 +1,6 @@
 {
   "name": "@vaultsync/extension",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "private": true,
   "scripts": {
     "dev": "vite build --watch & vite build --config vite.config.content.ts --watch",

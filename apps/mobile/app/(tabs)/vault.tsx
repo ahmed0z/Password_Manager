@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
-  useColorScheme, TextInput, ActivityIndicator, Alert, Modal,
+  useColorScheme, TextInput, ActivityIndicator, Alert, Modal, ScrollView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import {
   getVaultItems, type VaultItem, type DecryptedVaultItem,
   getFolders, buildFolderTree, createFolder, renameFolder, deleteFolder,
+  createVaultItem, updateVaultItem, deleteVaultItem,
   type DecryptedFolder, base64ToUint8Array
 } from '@vaultsync/core';
 import * as SecureStore from 'expo-secure-store';
@@ -58,6 +59,28 @@ export default function VaultScreen() {
   const [folderRenameName, setFolderRenameName] = useState('');
   const [folderNewName, setFolderNewName] = useState('');
 
+  // Password Details / Edit State
+  const [selectedItem, setSelectedItem] = useState<VaultItemWithDecrypted | null>(null);
+  const [isDetailEditing, setIsDetailEditing] = useState(false);
+  const [detailTitle, setDetailTitle] = useState('');
+  const [detailUrl, setDetailUrl] = useState('');
+  const [detailUsername, setDetailUsername] = useState('');
+  const [detailPassword, setDetailPassword] = useState('');
+  const [detailFolderId, setDetailFolderId] = useState('');
+  const [detailNotes, setDetailNotes] = useState('');
+  const [showDetailFolderSelect, setShowDetailFolderSelect] = useState(false);
+  const [isDetailPasswordVisible, setIsDetailPasswordVisible] = useState(false);
+
+  // Add Password State
+  const [isAddPasswordVisible, setIsAddPasswordVisible] = useState(false);
+  const [addTitle, setAddTitle] = useState('');
+  const [addUrl, setAddUrl] = useState('');
+  const [addUsername, setAddUsername] = useState('');
+  const [addPassword, setAddPassword] = useState('');
+  const [addFolderId, setAddFolderId] = useState('');
+  const [addNotes, setAddNotes] = useState('');
+  const [showAddFolderSelect, setShowAddFolderSelect] = useState(false);
+
   const getVaultKey = useCallback(async (): Promise<Uint8Array | null> => {
     const keyBase64 = await SecureStore.getItemAsync('vaultsync-vault-key');
     if (!keyBase64) return null;
@@ -87,6 +110,37 @@ export default function VaultScreen() {
 
   useEffect(() => {
     loadData();
+
+    let vaultItemsSub: any = null;
+    let foldersSub: any = null;
+
+    const setupRealtime = async () => {
+      try {
+        const { getSession, subscribeToVaultItems, subscribeToFolders } = await import('@vaultsync/core');
+        const session = await getSession();
+        if (!session || !session.user) return;
+        const userId = session.user.id;
+
+        vaultItemsSub = subscribeToVaultItems(userId, () => {
+          console.log('[Mobile Realtime] Vault items updated');
+          loadData();
+        });
+
+        foldersSub = subscribeToFolders(userId, () => {
+          console.log('[Mobile Realtime] Folders updated');
+          loadData();
+        });
+      } catch (e) {
+        console.warn('[Mobile Realtime] Realtime subscription failed:', e);
+      }
+    };
+
+    setupRealtime();
+
+    return () => {
+      if (vaultItemsSub) vaultItemsSub.unsubscribe();
+      if (foldersSub) foldersSub.unsubscribe();
+    };
   }, [loadData]);
 
   // -- Folder CRUD Handlers --
@@ -155,17 +209,128 @@ export default function VaultScreen() {
     return i.decrypted.title.toLowerCase().includes(q) || i.decrypted.username.toLowerCase().includes(q);
   });
 
-  const copyPassword = async (password: string) => {
-    await Clipboard.setStringAsync(password);
-    Alert.alert('Copied', 'Password copied to clipboard');
+  const copyToClipboard = async (text: string, label: string) => {
+    await Clipboard.setStringAsync(text);
+    Alert.alert('Copied', `${label} copied to clipboard`);
+  };
+
+  const handleStartDetailEdit = () => {
+    if (!selectedItem) return;
+    setDetailTitle(selectedItem.decrypted.title || '');
+    setDetailUrl(selectedItem.decrypted.url || '');
+    setDetailUsername(selectedItem.decrypted.username || '');
+    setDetailPassword(selectedItem.decrypted.password || '');
+    setDetailFolderId(selectedItem.folder_id || '');
+    setDetailNotes(selectedItem.decrypted.notes || '');
+    setIsDetailEditing(true);
+  };
+
+  const handleSaveDetailEdit = async () => {
+    if (!selectedItem) return;
+    try {
+      const key = await getVaultKey();
+      if (!key) return;
+      setLoading(true);
+
+      await updateVaultItem(
+        selectedItem.id,
+        {
+          title: detailTitle,
+          username: detailUsername,
+          password: detailPassword,
+          url: detailUrl,
+          notes: detailNotes,
+          folderId: detailFolderId || undefined,
+        },
+        selectedItem.decrypted,
+        key
+      );
+
+      setIsDetailEditing(false);
+      setSelectedItem(null);
+      await loadData();
+      Alert.alert('Success', 'Credentials updated successfully');
+    } catch (e) {
+      Alert.alert('Error', 'Failed to update credentials');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteDetailItem = async () => {
+    if (!selectedItem) return;
+    Alert.alert(
+      'Delete Credentials',
+      'Are you sure you want to delete this credentials? This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setLoading(true);
+              await deleteVaultItem(selectedItem.id);
+              setSelectedItem(null);
+              await loadData();
+              Alert.alert('Success', 'Credentials deleted');
+            } catch (e) {
+              Alert.alert('Error', 'Failed to delete credentials');
+            } finally {
+              setLoading(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const handleAddPassword = async () => {
+    if (!addTitle.trim() || !addUsername.trim() || !addPassword.trim()) {
+      Alert.alert('Error', 'Please fill in Title, Username, and Password');
+      return;
+    }
+    try {
+      const key = await getVaultKey();
+      if (!key) return;
+      setLoading(true);
+
+      await createVaultItem(
+        {
+          title: addTitle.trim(),
+          username: addUsername.trim(),
+          password: addPassword.trim(),
+          url: addUrl.trim(),
+          notes: addNotes.trim(),
+          folderId: addFolderId || undefined,
+        },
+        key
+      );
+
+      setIsAddPasswordVisible(false);
+      setAddTitle('');
+      setAddUrl('');
+      setAddUsername('');
+      setAddPassword('');
+      setAddFolderId('');
+      setAddNotes('');
+      await loadData();
+      Alert.alert('Success', 'Password saved to vault');
+    } catch (e) {
+      Alert.alert('Error', 'Failed to save password');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const renderItem = ({ item }: { item: VaultItemWithDecrypted }) => (
     <TouchableOpacity
       style={[styles.itemRow, { backgroundColor: c.card, borderColor: c.border }]}
       activeOpacity={0.7}
-      onPress={() => copyPassword(item.decrypted.password)}
-      onLongPress={() => {/* navigate to detail */}}
+      onPress={() => {
+        setIsDetailPasswordVisible(false);
+        setSelectedItem(item);
+      }}
     >
       <View style={[styles.favicon, { backgroundColor: c.faviconBg }]}>
         <Text style={{ fontSize: 18 }}>🔑</Text>
@@ -260,15 +425,28 @@ export default function VaultScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: c.bg }]}>
-      {/* Search */}
-      <View style={styles.searchContainer}>
+      {/* Search & Add */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 8, paddingBottom: 16, gap: 10 }}>
         <TextInput
-          style={[styles.searchInput, { backgroundColor: c.card, color: c.text, borderColor: c.border }]}
+          style={[styles.searchInput, { flex: 1, backgroundColor: c.card, color: c.text, borderColor: c.border }]}
           placeholder="Search vault..."
           placeholderTextColor={c.placeholder}
           value={search}
           onChangeText={updateSearch}
         />
+        <TouchableOpacity
+          style={{
+            height: 44,
+            paddingHorizontal: 16,
+            borderRadius: 12,
+            backgroundColor: c.accent,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+          onPress={() => setIsAddPasswordVisible(true)}
+        >
+          <Text style={{ color: '#0a0f1e', fontWeight: '700', fontSize: 14 }}>+ Add</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Stats */}
@@ -428,6 +606,342 @@ export default function VaultScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Add Password Modal */}
+      <Modal
+        visible={isAddPasswordVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setIsAddPasswordVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.floatingCard, { backgroundColor: c.card, borderColor: c.border }]}>
+            <View style={styles.floatingCardHeader}>
+              <Text style={[styles.floatingCardTitle, { color: c.text }]}>Add New Password</Text>
+              <TouchableOpacity
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 16,
+                  backgroundColor: 'rgba(255,255,255,0.06)',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+                onPress={() => setIsAddPasswordVisible(false)}
+              >
+                <Text style={{ color: c.textSec, fontSize: 14, fontWeight: '700' }}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView contentContainerStyle={{ paddingBottom: 20 }}>
+              <View style={{ gap: 12 }}>
+                <View>
+                  <Text style={[styles.inputLabel, { color: c.textSec }]}>Title</Text>
+                  <TextInput
+                    style={[styles.modalInput, { borderColor: c.border, color: c.text }]}
+                    placeholder="e.g. Gmail, Netflix"
+                    placeholderTextColor={c.placeholder}
+                    value={addTitle}
+                    onChangeText={setAddTitle}
+                  />
+                </View>
+                <View>
+                  <Text style={[styles.inputLabel, { color: c.textSec }]}>Website URL</Text>
+                  <TextInput
+                    style={[styles.modalInput, { borderColor: c.border, color: c.text }]}
+                    placeholder="https://example.com"
+                    placeholderTextColor={c.placeholder}
+                    value={addUrl}
+                    onChangeText={setAddUrl}
+                    keyboardType="url"
+                    autoCapitalize="none"
+                  />
+                </View>
+                <View>
+                  <Text style={[styles.inputLabel, { color: c.textSec }]}>Username / Email</Text>
+                  <TextInput
+                    style={[styles.modalInput, { borderColor: c.border, color: c.text }]}
+                    placeholder="your@email.com"
+                    placeholderTextColor={c.placeholder}
+                    value={addUsername}
+                    onChangeText={setAddUsername}
+                    autoCapitalize="none"
+                  />
+                </View>
+                <View>
+                  <Text style={[styles.inputLabel, { color: c.textSec }]}>Password</Text>
+                  <TextInput
+                    style={[styles.modalInput, { borderColor: c.border, color: c.text }]}
+                    placeholder="Enter password"
+                    placeholderTextColor={c.placeholder}
+                    value={addPassword}
+                    onChangeText={setAddPassword}
+                    secureTextEntry
+                  />
+                </View>
+                <View>
+                  <Text style={[styles.inputLabel, { color: c.textSec }]}>Folder</Text>
+                  <TouchableOpacity
+                    style={[styles.modalInput, { borderColor: c.border, justifyContent: 'center' }]}
+                    onPress={() => setShowAddFolderSelect(!showAddFolderSelect)}
+                  >
+                    <Text style={{ color: addFolderId ? c.text : c.placeholder }}>
+                      {addFolderId ? folders.find(f => f.id === addFolderId)?.name : 'Select Folder (Optional)'}
+                    </Text>
+                  </TouchableOpacity>
+                  {showAddFolderSelect && (
+                    <View style={{ maxHeight: 100, borderWidth: 1, borderColor: c.border, borderRadius: 10, padding: 8, marginBottom: 12 }}>
+                      <ScrollView nestedScrollEnabled>
+                        <TouchableOpacity onPress={() => { setAddFolderId(''); setShowAddFolderSelect(false); }} style={{ paddingVertical: 6 }}>
+                          <Text style={{ color: c.textSec }}>No Folder</Text>
+                        </TouchableOpacity>
+                        {folders.map(f => (
+                          <TouchableOpacity key={f.id} onPress={() => { setAddFolderId(f.id); setShowAddFolderSelect(false); }} style={{ paddingVertical: 6 }}>
+                            <Text style={{ color: c.text }}>{f.name}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    </View>
+                  )}
+                </View>
+                <View>
+                  <Text style={[styles.inputLabel, { color: c.textSec }]}>Notes</Text>
+                  <TextInput
+                    style={[styles.modalInput, { borderColor: c.border, color: c.text, height: 80, textAlignVertical: 'top', paddingTop: 8 }]}
+                    placeholder="Any additional notes..."
+                    placeholderTextColor={c.placeholder}
+                    value={addNotes}
+                    onChangeText={setAddNotes}
+                    multiline
+                  />
+                </View>
+              </View>
+            </ScrollView>
+
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={[styles.modalBtn, { backgroundColor: 'rgba(255,255,255,0.08)' }]}
+                onPress={() => setIsAddPasswordVisible(false)}
+              >
+                <Text style={{ color: c.textSec, fontWeight: '600' }}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalBtn, { backgroundColor: c.accent }]}
+                onPress={handleAddPassword}
+              >
+                <Text style={{ color: '#0a0f1e', fontWeight: '700' }}>Add to Vault</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Password Details Modal (Floating Card) */}
+      <Modal
+        visible={selectedItem !== null}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setSelectedItem(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.floatingCard, { backgroundColor: c.card, borderColor: c.border }]}>
+            <View style={styles.floatingCardHeader}>
+              <Text style={[styles.floatingCardTitle, { color: c.text }]}>
+                {isDetailEditing ? 'Edit Credentials' : 'Password Details'}
+              </Text>
+              <TouchableOpacity
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 16,
+                  backgroundColor: 'rgba(255,255,255,0.06)',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+                onPress={() => { setSelectedItem(null); setIsDetailEditing(false); }}
+              >
+                <Text style={{ color: c.textSec, fontSize: 14, fontWeight: '700' }}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView contentContainerStyle={{ paddingBottom: 20 }}>
+              {isDetailEditing ? (
+                <View style={{ gap: 12 }}>
+                  <View>
+                    <Text style={[styles.inputLabel, { color: c.textSec }]}>Title</Text>
+                    <TextInput
+                      style={[styles.modalInput, { borderColor: c.border, color: c.text }]}
+                      value={detailTitle}
+                      onChangeText={setDetailTitle}
+                      placeholder="Title"
+                      placeholderTextColor={c.placeholder}
+                    />
+                  </View>
+                  <View>
+                    <Text style={[styles.inputLabel, { color: c.textSec }]}>Website / Domain</Text>
+                    <TextInput
+                      style={[styles.modalInput, { borderColor: c.border, color: c.text }]}
+                      value={detailUrl}
+                      onChangeText={setDetailUrl}
+                      placeholder="Website URL"
+                      placeholderTextColor={c.placeholder}
+                    />
+                  </View>
+                  <View>
+                    <Text style={[styles.inputLabel, { color: c.textSec }]}>Username / Email</Text>
+                    <TextInput
+                      style={[styles.modalInput, { borderColor: c.border, color: c.text }]}
+                      value={detailUsername}
+                      onChangeText={setDetailUsername}
+                      placeholder="Username"
+                      placeholderTextColor={c.placeholder}
+                    />
+                  </View>
+                  <View>
+                    <Text style={[styles.inputLabel, { color: c.textSec }]}>Password</Text>
+                    <TextInput
+                      style={[styles.modalInput, { borderColor: c.border, color: c.text }]}
+                      value={detailPassword}
+                      onChangeText={setDetailPassword}
+                      placeholder="Password"
+                      placeholderTextColor={c.placeholder}
+                    />
+                  </View>
+                  <View>
+                    <Text style={[styles.inputLabel, { color: c.textSec }]}>Folder</Text>
+                    <TouchableOpacity
+                      style={[styles.modalInput, { borderColor: c.border, justifyContent: 'center' }]}
+                      onPress={() => setShowDetailFolderSelect(!showDetailFolderSelect)}
+                    >
+                      <Text style={{ color: detailFolderId ? c.text : c.placeholder }}>
+                        {detailFolderId ? folders.find(f => f.id === detailFolderId)?.name : 'No Folder'}
+                      </Text>
+                    </TouchableOpacity>
+                    {showDetailFolderSelect && (
+                      <View style={{ maxHeight: 100, borderWidth: 1, borderColor: c.border, borderRadius: 10, padding: 8, marginBottom: 12 }}>
+                        <ScrollView nestedScrollEnabled>
+                          <TouchableOpacity onPress={() => { setDetailFolderId(''); setShowDetailFolderSelect(false); }} style={{ paddingVertical: 6 }}>
+                            <Text style={{ color: c.textSec }}>No Folder</Text>
+                          </TouchableOpacity>
+                          {folders.map(f => (
+                            <TouchableOpacity key={f.id} onPress={() => { setDetailFolderId(f.id); setShowDetailFolderSelect(false); }} style={{ paddingVertical: 6 }}>
+                              <Text style={{ color: c.text }}>{f.name}</Text>
+                            </TouchableOpacity>
+                          ))}
+                        </ScrollView>
+                      </View>
+                    )}
+                  </View>
+                  <View>
+                    <Text style={[styles.inputLabel, { color: c.textSec }]}>Notes</Text>
+                    <TextInput
+                      style={[styles.modalInput, { borderColor: c.border, color: c.text, height: 80, textAlignVertical: 'top', paddingTop: 8 }]}
+                      value={detailNotes}
+                      onChangeText={setDetailNotes}
+                      placeholder="Notes"
+                      placeholderTextColor={c.placeholder}
+                      multiline
+                    />
+                  </View>
+                </View>
+              ) : (
+                <View style={{ gap: 10 }}>
+                  <View style={[styles.detailCardField, { backgroundColor: c.faviconBg, borderColor: c.border }]}>
+                    <Text style={[styles.detailLabel, { color: c.textSec }]}>Title</Text>
+                    <Text style={[styles.detailValue, { color: c.text, fontWeight: '700', fontSize: 15 }]}>{selectedItem?.decrypted.title}</Text>
+                  </View>
+
+                  <View style={[styles.detailCardField, { backgroundColor: c.faviconBg, borderColor: c.border }]}>
+                    <Text style={[styles.detailLabel, { color: c.textSec }]}>Website / Domain</Text>
+                    <Text style={[styles.detailValue, { color: c.text }]}>{selectedItem?.domain || selectedItem?.decrypted.url || '—'}</Text>
+                  </View>
+
+                  <View style={[styles.detailCardField, { backgroundColor: c.faviconBg, borderColor: c.border }]}>
+                    <Text style={[styles.detailLabel, { color: c.textSec }]}>Username / Email</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
+                      <Text style={[styles.detailValue, { color: c.text, flex: 1 }]} numberOfLines={1}>{selectedItem?.decrypted.username}</Text>
+                      <TouchableOpacity onPress={() => copyToClipboard(selectedItem?.decrypted.username || '', 'Username')} style={styles.copyBtnPill}>
+                        <Text style={{ color: c.accent, fontSize: 12, fontWeight: '700' }}>Copy</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  <View style={[styles.detailCardField, { backgroundColor: c.faviconBg, borderColor: c.border }]}>
+                    <Text style={[styles.detailLabel, { color: c.textSec }]}>Password</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
+                      <Text style={[styles.detailValue, { color: c.text, flex: 1, fontFamily: isDetailPasswordVisible ? 'System' : 'monospace', letterSpacing: isDetailPasswordVisible ? 0 : 2 }]} numberOfLines={1}>
+                        {isDetailPasswordVisible ? selectedItem?.decrypted.password : '••••••••••••••••'}
+                      </Text>
+                      <View style={{ flexDirection: 'row', gap: 8 }}>
+                        <TouchableOpacity onPress={() => setIsDetailPasswordVisible(!isDetailPasswordVisible)} style={[styles.copyBtnPill, { backgroundColor: 'rgba(255,255,255,0.04)' }]}>
+                          <Text style={{ color: c.textSec, fontSize: 12, fontWeight: '700' }}>{isDetailPasswordVisible ? 'Hide' : 'Show'}</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => copyToClipboard(selectedItem?.decrypted.password || '', 'Password')} style={styles.copyBtnPill}>
+                          <Text style={{ color: c.accent, fontSize: 12, fontWeight: '700' }}>Copy</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  </View>
+
+                  <View style={[styles.detailCardField, { backgroundColor: c.faviconBg, borderColor: c.border }]}>
+                    <Text style={[styles.detailLabel, { color: c.textSec }]}>Folder</Text>
+                    <Text style={[styles.detailValue, { color: c.text }]}>
+                      {folders.find(f => f.id === selectedItem?.folder_id)?.name || 'No Folder'}
+                    </Text>
+                  </View>
+
+                  <View style={[styles.detailCardField, { backgroundColor: c.faviconBg, borderColor: c.border, minHeight: 80 }]}>
+                    <Text style={[styles.detailLabel, { color: c.textSec }]}>Notes</Text>
+                    <Text style={[styles.detailValue, { color: c.text, fontStyle: selectedItem?.decrypted.notes ? 'normal' : 'italic', marginTop: 4 }]}>
+                      {selectedItem?.decrypted.notes || 'No notes added'}
+                    </Text>
+                  </View>
+                </View>
+              )}
+            </ScrollView>
+
+            <View style={styles.modalButtons}>
+              {isDetailEditing ? (
+                <>
+                  <TouchableOpacity
+                    style={[styles.modalBtn, { backgroundColor: 'rgba(255,255,255,0.08)' }]}
+                    onPress={() => setIsDetailEditing(false)}
+                  >
+                    <Text style={{ color: c.textSec, fontWeight: '600' }}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.modalBtn, { backgroundColor: c.accent }]}
+                    onPress={handleSaveDetailEdit}
+                  >
+                    <Text style={{ color: '#0a0f1e', fontWeight: '700' }}>Save Changes</Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <>
+                  <TouchableOpacity
+                    style={[styles.modalBtn, { backgroundColor: '#ef4444', marginRight: 'auto' }]}
+                    onPress={handleDeleteDetailItem}
+                  >
+                    <Text style={{ color: '#ffffff', fontWeight: '700' }}>Delete</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.modalBtn, { backgroundColor: 'rgba(255,255,255,0.08)' }]}
+                    onPress={() => setSelectedItem(null)}
+                  >
+                    <Text style={{ color: c.textSec, fontWeight: '600' }}>Close</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.modalBtn, { backgroundColor: c.accent }]}
+                    onPress={handleStartDetailEdit}
+                  >
+                    <Text style={{ color: '#0a0f1e', fontWeight: '700' }}>Edit</Text>
+                  </TouchableOpacity>
+                </>
+              )}
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -549,17 +1063,74 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     fontSize: 14,
     marginBottom: 16,
+    textAlignVertical: 'center',
   },
   modalButtons: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
     gap: 10,
+    marginTop: 10,
   },
   modalBtn: {
     paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
+    paddingVertical: 10,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  floatingCard: {
+    width: '100%',
+    maxWidth: 340,
+    borderRadius: 20,
+    padding: 20,
+    borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 10,
+    maxHeight: '80%',
+  },
+  floatingCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
+    paddingBottom: 12,
+  },
+  floatingCardTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  inputLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 6,
+  },
+  detailLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  detailValue: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  copyBtnPill: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  detailCardField: {
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
   },
 });

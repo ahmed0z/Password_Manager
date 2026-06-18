@@ -75,6 +75,30 @@ export default function BookmarksScreen() {
 
   useEffect(() => {
     loadData();
+
+    let bookmarksSub: any = null;
+
+    const setupRealtime = async () => {
+      try {
+        const { getSession, subscribeToBookmarks } = await import('@vaultsync/core');
+        const session = await getSession();
+        if (!session || !session.user) return;
+        const userId = session.user.id;
+
+        bookmarksSub = subscribeToBookmarks(userId, () => {
+          console.log('[Mobile Realtime] Bookmarks updated');
+          loadData();
+        });
+      } catch (e) {
+        console.warn('[Mobile Realtime] Bookmarks subscription failed:', e);
+      }
+    };
+
+    setupRealtime();
+
+    return () => {
+      if (bookmarksSub) bookmarksSub.unsubscribe();
+    };
   }, [loadData]);
 
   // -- Bookmark Folder CRUD Handlers --

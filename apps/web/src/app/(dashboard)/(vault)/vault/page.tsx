@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import {
   getVaultItems, deleteVaultItem, toggleFavorite,
-  createVaultItem, getFolders, createFolder,
+  createVaultItem, updateVaultItem, getFolders, createFolder,
   type DecryptedVaultItem, type VaultItem, type DecryptedFolder, base64ToUint8Array
 } from '@vaultsync/core';
 
@@ -24,6 +24,7 @@ function VaultContent() {
   const [showFolderModal, setShowFolderModal] = useState(false);
   const [revealedPasswords, setRevealedPasswords] = useState<Set<string>>(new Set());
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [editingItem, setEditingItem] = useState<any | null>(null);
 
   const getVaultKey = useCallback(async (): Promise<Uint8Array | null> => {
     const keyBase64 = localStorage.getItem('vaultsync-vault-key');
@@ -190,6 +191,7 @@ function VaultContent() {
                 onCopy={(text) => handleCopy(text, item.id)}
                 onToggleFavorite={() => handleToggleFavorite(item.id, item.is_favorite)}
                 onDelete={() => handleDelete(item.id)}
+                onEdit={() => setEditingItem(item)}
               />
             ))}
           </div>
@@ -209,6 +211,7 @@ function VaultContent() {
               onCopy={(text) => handleCopy(text, item.id)}
               onToggleFavorite={() => handleToggleFavorite(item.id, item.is_favorite)}
               onDelete={() => handleDelete(item.id)}
+              onEdit={() => setEditingItem(item)}
             />
           ))}
         </div>
@@ -243,6 +246,20 @@ function VaultContent() {
         />
       )}
 
+      {/* Edit Password Modal */}
+      {editingItem && (
+        <EditPasswordModal
+          item={editingItem}
+          folders={folders}
+          onClose={() => setEditingItem(null)}
+          onUpdated={() => {
+            setEditingItem(null);
+            loadData();
+          }}
+          getVaultKey={getVaultKey}
+        />
+      )}
+
       {/* Add Folder Modal */}
       {showFolderModal && (
         <AddFolderModal
@@ -270,6 +287,7 @@ function VaultCard({
   onCopy,
   onToggleFavorite,
   onDelete,
+  onEdit,
 }: {
   item: VaultItem & { decrypted: DecryptedVaultItem };
   isRevealed: boolean;
@@ -278,9 +296,10 @@ function VaultCard({
   onCopy: (text: string) => void;
   onToggleFavorite: () => void;
   onDelete: () => void;
+  onEdit: () => void;
 }) {
   return (
-    <div className="vs-card vault-card" style={{ animation: 'fadeInUp 0.3s var(--ease-out-expo)' }}>
+    <div className="vs-card vault-card" style={{ animation: 'fadeInUp 0.3s var(--ease-out-expo)', cursor: 'pointer' }} onClick={onEdit}>
       {/* Header */}
       <div className="vault-card-header">
         <div className="vault-card-favicon">
@@ -301,7 +320,7 @@ function VaultCard({
         <button
           className="vs-btn vs-btn-ghost"
           style={{ padding: 4, color: item.is_favorite ? 'var(--warning)' : 'var(--text-tertiary)' }}
-          onClick={onToggleFavorite}
+          onClick={(e) => { e.stopPropagation(); onToggleFavorite(); }}
           title={item.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
         >
           <Star size={16} fill={item.is_favorite ? 'currentColor' : 'none'} />
@@ -321,7 +340,7 @@ function VaultCard({
         <button
           className="vs-btn vs-btn-ghost"
           style={{ padding: 4 }}
-          onClick={() => onCopy(item.decrypted.username)}
+          onClick={(e) => { e.stopPropagation(); onCopy(item.decrypted.username); }}
           title="Copy username"
         >
           <Copy size={14} />
@@ -353,7 +372,7 @@ function VaultCard({
           <button
             className="vs-btn vs-btn-ghost"
             style={{ padding: 4 }}
-            onClick={onToggleReveal}
+            onClick={(e) => { e.stopPropagation(); onToggleReveal(); }}
             title={isRevealed ? 'Hide password' : 'Reveal password'}
           >
             {isRevealed ? <EyeOff size={14} /> : <Eye size={14} />}
@@ -361,7 +380,7 @@ function VaultCard({
           <button
             className="vs-btn vs-btn-ghost"
             style={{ padding: 4, color: isCopied ? 'var(--success)' : undefined }}
-            onClick={() => onCopy(item.decrypted.password)}
+            onClick={(e) => { e.stopPropagation(); onCopy(item.decrypted.password); }}
             title="Copy password"
           >
             <Copy size={14} />
@@ -379,19 +398,128 @@ function VaultCard({
             rel="noopener noreferrer"
             className="vs-btn vs-btn-ghost"
             style={{ padding: '4px 8px', fontSize: '0.8125rem' }}
+            onClick={(e) => e.stopPropagation()}
           >
             <ExternalLink size={14} />
             Visit
           </a>
         )}
         <div style={{ display: 'flex', gap: 'var(--space-1)', marginLeft: 'auto' }}>
-          <button className="vs-btn vs-btn-ghost" style={{ padding: 4 }} title="Edit">
+          <button className="vs-btn vs-btn-ghost" style={{ padding: 4 }} title="Edit" onClick={(e) => { e.stopPropagation(); onEdit(); }}>
             <Edit3 size={14} />
           </button>
-          <button className="vs-btn vs-btn-danger" style={{ padding: 4 }} onClick={onDelete} title="Delete">
+          <button className="vs-btn vs-btn-danger" style={{ padding: 4 }} onClick={(e) => { e.stopPropagation(); onDelete(); }} title="Delete">
             <Trash2 size={14} />
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Edit Password Modal
+// ---------------------------------------------------------------------------
+
+function EditPasswordModal({
+  item,
+  folders,
+  onClose,
+  onUpdated,
+  getVaultKey,
+}: {
+  item: VaultItem & { decrypted: DecryptedVaultItem };
+  folders: DecryptedFolder[];
+  onClose: () => void;
+  onUpdated: () => void;
+  getVaultKey: () => Promise<Uint8Array | null>;
+}) {
+  const [title, setTitle] = useState(item.decrypted.title || '');
+  const [username, setUsername] = useState(item.decrypted.username || '');
+  const [password, setPassword] = useState(item.decrypted.password || '');
+  const [url, setUrl] = useState(item.decrypted.url || '');
+  const [notes, setNotes] = useState(item.decrypted.notes || '');
+  const [folderId, setFolderId] = useState(item.folder_id || '');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+
+    try {
+      const vaultKey = await getVaultKey();
+      if (!vaultKey) throw new Error('Vault key not found. Please sign in again.');
+
+      await updateVaultItem(
+        item.id,
+        { title, username, password, url, notes, folderId: folderId || undefined },
+        item.decrypted,
+        vaultKey
+      );
+      onUpdated();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update password.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="vs-card-static modal-content" onClick={(e) => e.stopPropagation()}>
+        <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 'var(--space-6)' }}>
+          Edit Password Details
+        </h2>
+
+        <form onSubmit={handleSubmit}>
+          <div className="form-group">
+            <label className="form-label" htmlFor="edit-title">Title</label>
+            <input id="edit-title" className="vs-input" placeholder="e.g., Gmail, Netflix" value={title} onChange={(e) => setTitle(e.target.value)} required />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label" htmlFor="edit-url">Website URL</label>
+            <input id="edit-url" className="vs-input" placeholder="https://example.com" value={url} onChange={(e) => setUrl(e.target.value)} />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label" htmlFor="edit-username">Username / Email</label>
+            <input id="edit-username" className="vs-input" placeholder="your@email.com" value={username} onChange={(e) => setUsername(e.target.value)} required />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label" htmlFor="edit-password">Password</label>
+            <input id="edit-password" type="text" className="vs-input" placeholder="Enter password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+          </div>
+
+          {folders.length > 0 && (
+            <div className="form-group">
+              <label className="form-label" htmlFor="edit-folder">Folder (optional)</label>
+              <select id="edit-folder" className="vs-input" value={folderId} onChange={(e) => setFolderId(e.target.value)}>
+                <option value="">No folder</option>
+                {folders.map((f) => (
+                  <option key={f.id} value={f.id}>{f.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <div className="form-group">
+            <label className="form-label" htmlFor="edit-notes">Notes (optional)</label>
+            <textarea id="edit-notes" className="vs-input" rows={3} placeholder="Any additional notes..." value={notes} onChange={(e) => setNotes(e.target.value)} style={{ resize: 'vertical' }} />
+          </div>
+
+          {error && <p className="form-error">{error}</p>}
+
+          <div style={{ display: 'flex', gap: 'var(--space-3)', justifyContent: 'flex-end', marginTop: 'var(--space-4)' }}>
+            <button type="button" className="vs-btn vs-btn-secondary" onClick={onClose}>Cancel</button>
+            <button type="submit" className="vs-btn vs-btn-primary" disabled={loading}>
+              {loading ? <><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> Saving...</> : <><Edit3 size={16} /> Save Changes</>}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );

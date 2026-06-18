@@ -99,6 +99,51 @@ export default function VaultLayout({ children }: { children: React.ReactNode })
     };
   }, [router]);
 
+  // Realtime database synchronization subscriptions
+  useEffect(() => {
+    let vaultItemsSub: any = null;
+    let foldersSub: any = null;
+    let bookmarksSub: any = null;
+
+    const setupRealtime = async () => {
+      try {
+        const session = await getSession();
+        if (!session || !session.user) return;
+        const userId = session.user.id;
+
+        const { subscribeToVaultItems, subscribeToFolders, subscribeToBookmarks } = await import('@vaultsync/core');
+
+        // Subscribe to vault items changes
+        vaultItemsSub = subscribeToVaultItems(userId, () => {
+          console.log('[Realtime SW] Vault items changed in Supabase');
+          window.dispatchEvent(new Event('vault-data-changed'));
+        });
+
+        // Subscribe to folders changes
+        foldersSub = subscribeToFolders(userId, () => {
+          console.log('[Realtime SW] Folders changed in Supabase');
+          window.dispatchEvent(new Event('vault-data-changed'));
+        });
+
+        // Subscribe to bookmarks changes
+        bookmarksSub = subscribeToBookmarks(userId, () => {
+          console.log('[Realtime SW] Bookmarks changed in Supabase');
+          window.dispatchEvent(new Event('bookmarks-data-changed'));
+        });
+      } catch (err) {
+        console.error('[Realtime SW] Subscription setup failed:', err);
+      }
+    };
+
+    setupRealtime();
+
+    return () => {
+      if (vaultItemsSub) vaultItemsSub.unsubscribe();
+      if (foldersSub) foldersSub.unsubscribe();
+      if (bookmarksSub) bookmarksSub.unsubscribe();
+    };
+  }, []);
+
   const handleSignOut = async () => {
     await signOut();
     localStorage.removeItem('vaultsync-vault-key');

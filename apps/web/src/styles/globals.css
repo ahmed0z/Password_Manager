@@ -12,7 +12,7 @@ code, pre, .font-mono {
 
 /* ---- Page Transitions ---- */
 .page-enter {
-  animation: fadeInUp 0.4s var(--ease-out-expo) both;
+  animation: fadeIn 0.4s var(--ease-out-expo) both;
 }
 
 /* ---- Landing Hero ---- */
@@ -326,12 +326,13 @@ code, pre, .font-mono {
 .modal-content {
   width: 100%;
   max-width: 520px;
-  max-height: calc(100vh - var(--space-12, 48px) * 2);
+  max-height: 90vh;
   display: flex;
   flex-direction: column;
   padding: 0;
   animation: fadeInScale 0.3s var(--ease-out-expo);
   overflow: hidden;
+  margin: auto; /* Centering helper for flexbox overflow */
 }
 
 .modal-content h2 {
@@ -466,4 +467,30 @@ code, pre, .font-mono {
   .vault-grid {
     grid-template-columns: 1fr;
   }
+}
+
+@media (max-width: 640px) {
+  .modal-overlay {
+    padding: 0;
+    align-items: flex-end;
+  }
+  .modal-content {
+    max-width: 100%;
+    margin: 0;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0 !important;
+    max-height: 85vh;
+    animation: slideUpMobile 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .modal-content h2 {
+    padding: var(--space-5) var(--space-5) 0;
+    font-size: 1.125rem;
+  }
+  .modal-content form {
+    padding: var(--space-3) var(--space-5) var(--space-5);
+  }
+}
+
+@keyframes slideUpMobile {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
 }
