@@ -52,78 +52,81 @@ export default function LoginScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-        {/* Logo */}
-        <View style={styles.logoContainer}>
-          <View style={[styles.logoIcon, { backgroundColor: colors.accent }]}>
-            <Text style={styles.logoEmoji}>🔐</Text>
-          </View>
-          <Text style={[styles.logoTitle, { color: colors.text }]}>VaultSync</Text>
-          <Text style={[styles.logoSubtitle, { color: colors.textSecondary }]}>
-            Sign in to your vault
-          </Text>
-        </View>
-
-        {/* Form */}
-        <View style={styles.form}>
-          <View style={styles.inputGroup}>
-            <Text style={[styles.label, { color: colors.textSecondary }]}>Email Address</Text>
-            <TextInput
-              style={[styles.input, { backgroundColor: colors.inputBg, color: colors.text, borderColor: colors.border }]}
-              placeholder="you@example.com"
-              placeholderTextColor={colors.placeholder}
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoComplete="email"
-            />
-          </View>
-
-          <View style={styles.inputGroup}>
-            <Text style={[styles.label, { color: colors.textSecondary }]}>Master Password</Text>
-            <View style={styles.passwordContainer}>
-              <TextInput
-                style={[styles.input, styles.passwordInput, { backgroundColor: colors.inputBg, color: colors.text, borderColor: colors.border }]}
-                placeholder="Enter your master password"
-                placeholderTextColor={colors.placeholder}
-                value={masterPassword}
-                onChangeText={setMasterPassword}
-                secureTextEntry={!showPassword}
-              />
-              <TouchableOpacity
-                style={styles.eyeButton}
-                onPress={() => setShowPassword(!showPassword)}
-              >
-                <Text style={{ color: colors.textSecondary, fontSize: 16 }}>
-                  {showPassword ? '👁️‍🗨️' : '👁️'}
-                </Text>
-              </TouchableOpacity>
+        {/* Card Frame */}
+        <View style={[styles.loginCard, { backgroundColor: colors.cardBg }]}>
+          {/* Logo */}
+          <View style={styles.logoContainer}>
+            <View style={[styles.logoIcon, { backgroundColor: colors.accent }]}>
+              <Text style={styles.logoEmoji}>🔐</Text>
             </View>
+            <Text style={[styles.logoTitle, { color: colors.text }]}>VaultSync</Text>
+            <Text style={[styles.logoSubtitle, { color: colors.textSecondary }]}>
+              Zero-Knowledge Password Manager
+            </Text>
           </View>
 
-          {error ? (
-            <Text style={styles.errorText}>{error}</Text>
-          ) : null}
+          {/* Form */}
+          <View style={styles.form}>
+            <View style={styles.inputGroup}>
+              <Text style={[styles.label, { color: colors.textSecondary }]}>Email Address</Text>
+              <TextInput
+                style={[styles.input, { backgroundColor: colors.inputBg, color: colors.text, borderColor: colors.border }]}
+                placeholder="you@example.com"
+                placeholderTextColor={colors.placeholder}
+                value={email}
+                onChangeText={setEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoComplete="email"
+              />
+            </View>
 
-          <TouchableOpacity
-            style={[styles.primaryButton, { opacity: loading ? 0.7 : 1 }]}
-            onPress={handleLogin}
-            disabled={loading}
-            activeOpacity={0.8}
-          >
-            {loading ? (
-              <ActivityIndicator color="white" />
-            ) : (
-              <Text style={styles.primaryButtonText}>Unlock Vault</Text>
-            )}
-          </TouchableOpacity>
+            <View style={styles.inputGroup}>
+              <Text style={[styles.label, { color: colors.textSecondary }]}>Master Password</Text>
+              <View style={styles.passwordContainer}>
+                <TextInput
+                  style={[styles.input, styles.passwordInput, { backgroundColor: colors.inputBg, color: colors.text, borderColor: colors.border }]}
+                  placeholder="Enter master password"
+                  placeholderTextColor={colors.placeholder}
+                  value={masterPassword}
+                  onChangeText={setMasterPassword}
+                  secureTextEntry={!showPassword}
+                />
+                <TouchableOpacity
+                  style={styles.eyeButton}
+                  onPress={() => setShowPassword(!showPassword)}
+                >
+                  <Text style={{ color: colors.textSecondary, fontSize: 16 }}>
+                    {showPassword ? '👁️‍🗨️' : '👁️'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
 
-          <TouchableOpacity onPress={() => router.push('/(auth)/signup')} style={styles.linkContainer}>
-            <Text style={[styles.linkText, { color: colors.textSecondary }]}>
-              Don't have an account?{' '}
-              <Text style={{ color: colors.accent, fontWeight: '600' }}>Create one</Text>
-            </Text>
-          </TouchableOpacity>
+            {error ? (
+              <Text style={styles.errorText}>{error}</Text>
+            ) : null}
+
+            <TouchableOpacity
+              style={[styles.primaryButton, { backgroundColor: colors.accent, opacity: loading ? 0.7 : 1 }]}
+              onPress={handleLogin}
+              disabled={loading}
+              activeOpacity={0.8}
+            >
+              {loading ? (
+                <ActivityIndicator color="#1F2228" />
+              ) : (
+                <Text style={[styles.primaryButtonText, { color: colors.btnText }]}>Unlock Vault</Text>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={() => router.push('/(auth)/signup')} style={styles.linkContainer}>
+              <Text style={[styles.linkText, { color: colors.textSecondary }]}>
+                Don't have an account?{' '}
+                <Text style={{ color: colors.accent, fontWeight: '700' }}>Create one</Text>
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -131,47 +134,61 @@ export default function LoginScreen() {
 }
 
 const darkColors = {
-  bg: '#0a0f1e',
-  text: '#f2f2f2',
-  textSecondary: '#8a8f9e',
-  accent: '#5ce0d6',
-  inputBg: '#141928',
+  bg: '#4A515C',
+  cardBg: '#3D434D',
+  text: '#FFFFFF',
+  textSecondary: '#C7CBD1',
+  accent: '#F4E11A',
+  inputBg: 'rgba(23, 24, 25, 0.2)',
   border: 'rgba(255,255,255,0.08)',
   placeholder: 'rgba(255,255,255,0.3)',
+  btnText: '#1F2228',
 };
 
 const lightColors = {
-  bg: '#f5f5f7',
-  text: '#151b33',
-  textSecondary: '#6b7280',
-  accent: '#2563eb',
-  inputBg: '#ffffff',
-  border: 'rgba(0,0,0,0.12)',
-  placeholder: 'rgba(0,0,0,0.3)',
+  bg: '#E9EAEC',
+  cardBg: '#FFFFFF',
+  text: '#1F2228',
+  textSecondary: '#5C6470',
+  accent: '#F4E11A',
+  inputBg: 'rgba(0,0,0,0.03)',
+  border: 'rgba(0,0,0,0.08)',
+  placeholder: 'rgba(0,0,0,0.4)',
+  btnText: '#1F2228',
 };
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  scrollContent: { flexGrow: 1, justifyContent: 'center', padding: 24 },
-  logoContainer: { alignItems: 'center', marginBottom: 48 },
+  scrollContent: { flexGrow: 1, justifyContent: 'center', padding: 20 },
+  loginCard: {
+    width: '100%',
+    borderRadius: 28,
+    padding: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 8,
+  },
+  logoContainer: { alignItems: 'center', marginBottom: 32 },
   logoIcon: {
     width: 64,
     height: 64,
-    borderRadius: 16,
+    borderRadius: 32,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 16,
   },
   logoEmoji: { fontSize: 28 },
-  logoTitle: { fontSize: 28, fontWeight: '800', letterSpacing: -0.5 },
-  logoSubtitle: { fontSize: 14, marginTop: 4 },
-  form: { width: '100%', maxWidth: 400, alignSelf: 'center' },
+  logoTitle: { fontSize: 32, fontWeight: '600', letterSpacing: -0.5 },
+  logoSubtitle: { fontSize: 13, marginTop: 4, textAlign: 'center' },
+  form: { width: '100%' },
   inputGroup: { marginBottom: 20 },
-  label: { fontSize: 13, fontWeight: '500', marginBottom: 8 },
+  label: { fontSize: 14, fontWeight: '500', marginBottom: 8 },
   input: {
     height: 52,
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 20,
     paddingHorizontal: 16,
     fontSize: 15,
   },
@@ -188,13 +205,12 @@ const styles = StyleSheet.create({
   errorText: { color: '#ef4444', fontSize: 13, marginBottom: 12 },
   primaryButton: {
     height: 52,
-    borderRadius: 12,
+    borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 8,
-    backgroundColor: '#5ce0d6',
   },
-  primaryButtonText: { color: '#0a0f1e', fontSize: 16, fontWeight: '700' },
+  primaryButtonText: { fontSize: 16, fontWeight: '700' },
   linkContainer: { marginTop: 24, alignItems: 'center' },
   linkText: { fontSize: 14 },
 });

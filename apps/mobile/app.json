@@ -2,22 +2,24 @@
   "expo": {
     "name": "VaultSync",
     "slug": "vaultsync-mobile",
-    "version": "1.0.6",
+    "version": "1.0.9",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "scheme": "vaultsync",
+    "backgroundColor": "#4A515C",
     "splash": {
-      "backgroundColor": "#0a0f1e"
+      "backgroundColor": "#4A515C"
     },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.vaultsync.mobile"
     },
     "android": {
+      "backgroundColor": "#4A515C",
       "adaptiveIcon": {
-        "backgroundColor": "#0a0f1e"
+        "backgroundColor": "#4A515C"
       },
       "package": "com.vaultsync.mobile"
     },

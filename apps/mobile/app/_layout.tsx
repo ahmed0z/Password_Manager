@@ -28,9 +28,9 @@ if (Platform.OS !== 'web') {
 }
 
 const darkColors = {
-  bgPrimary: '#0a0f1e',
-  textPrimary: '#f2f2f2',
-  accentPrimary: '#5ce0d6',
+  bgPrimary: '#4A515C',
+  textPrimary: '#FFFFFF',
+  accentPrimary: '#F4E11A',
 };
 
 const lightColors = {

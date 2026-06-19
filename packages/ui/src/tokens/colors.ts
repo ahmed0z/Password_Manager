@@ -1,96 +1,87 @@
 // ============================================================================
 // VaultSync — Color Design Tokens
-// Unified color palette for dark and light modes across all platforms.
+// Slate background + Yellow accent aesthetic based on design_spec.json
 // ============================================================================
 
 export const colors = {
   dark: {
     // Backgrounds
-    bgPrimary: 'hsl(222, 47%, 7%)',
-    bgSecondary: 'hsl(222, 42%, 10%)',
-    bgTertiary: 'hsl(222, 38%, 13%)',
-    bgElevated: 'hsl(222, 35%, 15%)',
-    bgHover: 'hsl(222, 35%, 18%)',
-    bgOverlay: 'hsla(222, 47%, 5%, 0.85)',
-
-    // Surfaces (glassmorphism)
-    surfaceCard: 'hsla(222, 40%, 14%, 0.7)',
-    surfaceBorder: 'hsla(0, 0%, 100%, 0.06)',
-    surfaceBorderHover: 'hsla(0, 0%, 100%, 0.12)',
-
-    // Text
-    textPrimary: 'hsl(0, 0%, 95%)',
-    textSecondary: 'hsl(0, 0%, 65%)',
-    textTertiary: 'hsl(0, 0%, 45%)',
-    textInverse: 'hsl(222, 47%, 7%)',
-
-    // Accent gradient
-    accentPrimary: 'hsl(190, 95%, 60%)',
-    accentSecondary: 'hsl(270, 80%, 65%)',
-    accentGradient: 'linear-gradient(135deg, hsl(190, 95%, 60%), hsl(270, 80%, 65%))',
-    accentSoft: 'hsla(190, 95%, 60%, 0.12)',
-
-    // Semantic
-    success: 'hsl(152, 69%, 55%)',
-    successSoft: 'hsla(152, 69%, 55%, 0.12)',
-    warning: 'hsl(38, 95%, 60%)',
-    warningSoft: 'hsla(38, 95%, 60%, 0.12)',
-    danger: 'hsl(0, 84%, 62%)',
-    dangerSoft: 'hsla(0, 84%, 62%, 0.12)',
-    info: 'hsl(210, 90%, 62%)',
-    infoSoft: 'hsla(210, 90%, 62%, 0.12)',
-
-    // Strength indicator
-    strengthVeryWeak: 'hsl(0, 84%, 62%)',
-    strengthWeak: 'hsl(25, 90%, 58%)',
-    strengthFair: 'hsl(38, 95%, 60%)',
-    strengthStrong: 'hsl(85, 65%, 55%)',
-    strengthVeryStrong: 'hsl(152, 69%, 55%)',
-  },
-
-  light: {
-    // Backgrounds
-    bgPrimary: 'hsl(220, 20%, 97%)',
-    bgSecondary: 'hsl(220, 20%, 94%)',
-    bgTertiary: 'hsl(220, 18%, 91%)',
-    bgElevated: 'hsl(0, 0%, 100%)',
-    bgHover: 'hsl(220, 18%, 95%)',
-    bgOverlay: 'hsla(220, 20%, 97%, 0.85)',
+    bgPrimary: '#5C6470',
+    bgSecondary: '#4A515C',
+    bgTertiary: '#3D434D',
+    bgElevated: '#E9EAEC',
+    bgGradientStart: '#707784',
+    bgGradientEnd: '#4A515C',
 
     // Surfaces
-    surfaceCard: 'hsla(0, 0%, 100%, 0.8)',
-    surfaceBorder: 'hsla(222, 20%, 50%, 0.12)',
-    surfaceBorderHover: 'hsla(222, 20%, 50%, 0.22)',
+    surfaceCard: '#3D434D',
+    surfaceCardSelected: '#E9EAEC',
+    surfaceMap: '#6B7280',
+    surfaceBorder: 'rgba(255, 255, 255, 0.08)',
+    surfaceBorderHover: 'rgba(255, 255, 255, 0.15)',
 
     // Text
-    textPrimary: 'hsl(222, 47%, 11%)',
-    textSecondary: 'hsl(222, 15%, 40%)',
-    textTertiary: 'hsl(222, 10%, 60%)',
-    textInverse: 'hsl(0, 0%, 97%)',
+    textPrimary: '#FFFFFF',
+    textSecondary: '#C7CBD1',
+    textTertiary: '#9CA1AA',
+    textInverse: '#1F2228',
+    textMuted: '#A9AEB6',
 
     // Accent
-    accentPrimary: 'hsl(220, 85%, 50%)',
-    accentSecondary: 'hsl(270, 70%, 55%)',
-    accentGradient: 'linear-gradient(135deg, hsl(220, 85%, 50%), hsl(270, 70%, 55%))',
-    accentSoft: 'hsla(220, 85%, 50%, 0.10)',
+    accentPrimary: '#F4E11A',
+    accentSoft: 'rgba(244, 225, 26, 0.12)',
+    success: '#C7E8B0',
+    successText: '#1E4620',
+    blackPill: '#171819',
+    
+    // Iconography
+    iconBtnBg: '#A8ACB5',
+    iconColor: '#1F2228',
 
-    // Semantic
-    success: 'hsl(152, 55%, 42%)',
-    successSoft: 'hsla(152, 55%, 42%, 0.10)',
-    warning: 'hsl(38, 80%, 48%)',
-    warningSoft: 'hsla(38, 80%, 48%, 0.10)',
-    danger: 'hsl(0, 72%, 52%)',
-    dangerSoft: 'hsla(0, 72%, 52%, 0.10)',
-    info: 'hsl(210, 80%, 52%)',
-    infoSoft: 'hsla(210, 80%, 52%, 0.10)',
-
-    // Strength indicator
-    strengthVeryWeak: 'hsl(0, 72%, 52%)',
-    strengthWeak: 'hsl(25, 80%, 50%)',
-    strengthFair: 'hsl(38, 80%, 48%)',
-    strengthStrong: 'hsl(85, 55%, 42%)',
-    strengthVeryStrong: 'hsl(152, 55%, 42%)',
+    // Strength levels (derived)
+    strengthWeak: '#EF4444',
+    strengthMedium: '#F4E11A',
+    strengthStrong: '#22C55E',
   },
+  light: {
+    // A clean light slate theme
+    bgPrimary: '#E9EAEC',
+    bgSecondary: '#C7CBD1',
+    bgTertiary: '#A9AEB6',
+    bgElevated: '#FFFFFF',
+    bgGradientStart: '#E9EAEC',
+    bgGradientEnd: '#C7CBD1',
+
+    // Surfaces
+    surfaceCard: '#FFFFFF',
+    surfaceCardSelected: '#E9EAEC',
+    surfaceMap: '#6B7280',
+    surfaceBorder: 'rgba(0, 0, 0, 0.08)',
+    surfaceBorderHover: 'rgba(0, 0, 0, 0.15)',
+
+    // Text
+    textPrimary: '#1F2228',
+    textSecondary: '#3D434D',
+    textTertiary: '#5C6470',
+    textInverse: '#FFFFFF',
+    textMuted: '#6B7280',
+
+    // Accent
+    accentPrimary: '#F4E11A',
+    accentSoft: 'rgba(244, 225, 26, 0.12)',
+    success: '#C7E8B0',
+    successText: '#1E4620',
+    blackPill: '#171819',
+    
+    // Iconography
+    iconBtnBg: '#A8ACB5',
+    iconColor: '#1F2228',
+
+    // Strength levels
+    strengthWeak: '#EF4444',
+    strengthMedium: '#F4E11A',
+    strengthStrong: '#22C55E',
+  }
 } as const;
 
 export type ThemeColors = typeof colors.dark;

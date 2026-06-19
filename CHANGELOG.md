@@ -4,6 +4,21 @@ All notable changes to the VaultSync password manager project are documented in 
 
 ---
 
+## [v1.0.9] - 2026-06-19
+
+### Added
+- **Keyboard Height Adaptation**: Bottom sheet modals now dynamically listen to the system keyboard height, auto-expanding to full height and adding bottom scroll padding to prevent keyboard overlap on text inputs.
+- **Folder CRUD Modals**: Integrated UI modals for creating and renaming folders for both logins and bookmarks inside the mobile application.
+
+### Fixed
+- **Bottom Sheet Stability & Performance**: Re-engineered modal animations from JS-based height layout transitions to native `translateY` transforms, resolving UI flickering and settling delays.
+- **Instant Subtab Transitions**: Converted conditional mounts on Logins/Bookmarks pages to flex-layout displays, eliminating rendering lags.
+- **Bookmarks List CPU Optimization**: Switched domain extraction from heavy `new URL()` instantiations to simple string slices, speeding up list rendering times.
+- **Android Keyboard Resize Flash**: Configured Android activity window background to match the slate theme, resolving transition gaps.
+- **Removed Devices Page**: Cleaned up layout files to delete devices view entries and tab navigation dependencies.
+
+---
+
 ## [v1.0.8] - 2026-06-19
 
 ### Added

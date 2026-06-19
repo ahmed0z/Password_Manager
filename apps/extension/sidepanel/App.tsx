@@ -2,16 +2,16 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Shield, Key, Search, Star, Copy, Eye, EyeOff,
   ExternalLink, Bookmark, Plus, RefreshCw, Check,
-  Settings, LogOut, ChevronRight, Lock, Loader2, X, Clock, Edit3
+  Settings, LogOut, ChevronRight, Lock, Loader2, X, Clock, Edit3,
+  Sparkles, Laptop, Smartphone
 } from 'lucide-react';
 import {
   signIn, signOut, getSession, getVaultItems, syncBookmarks, createVaultItem, getBookmarks,
   getFolders, createFolder, renameFolder, deleteFolder, buildFolderTree,
   renameBookmarkFolder, deleteBookmarkFolder, buildBookmarkFolderTree,
-  type DecryptedFolder, type BookmarkFolderNode
+  generatePassword, estimateStrength, type DecryptedFolder, type BookmarkFolderNode
 } from '@vaultsync/core';
 import { getThemeStyles } from './styles';
-
 
 function isLocalOrInvalidDomain(domain: string): boolean {
   if (!domain) return true;
@@ -31,13 +31,14 @@ function isLocalOrInvalidDomain(domain: string): boolean {
   return false;
 }
 
-// Helper: get favicon URL for a domain
 function getFaviconUrl(domain: string): string {
   if (isLocalOrInvalidDomain(domain)) return '';
   return `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
 }
 
-type Tab = 'vault' | 'bookmarks' | 'settings';
+type Tab = 'vault' | 'generator' | 'security' | 'devices' | 'settings';
+type SubTab = 'logins' | 'bookmarks';
+type StrengthFilter = 'all' | 'weak' | 'reused' | 'strong';
 
 interface VaultEntry {
   id: string;
@@ -61,6 +62,9 @@ interface BookmarkEntry {
 export function SidePanel() {
   const [isAuthed, setIsAuthed] = useState(false);
   const [tab, setTab] = useState<Tab>('vault');
+  const [subTab, setSubTab] = useState<SubTab>('logins');
+  const [strengthFilter, setStrengthFilter] = useState<StrengthFilter>('all');
+  
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [search, setSearch] = useState('');
@@ -82,7 +86,7 @@ export function SidePanel() {
     setExpandedFolders(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
-  // Modals / forms state inside extension panel
+  // Modals state
   const [showAddFolderModal, setShowAddFolderModal] = useState(false);
   const [showRenameFolderModal, setShowRenameFolderModal] = useState(false);
   const [folderParentId, setFolderParentId] = useState<string | undefined>(undefined);
@@ -90,12 +94,11 @@ export function SidePanel() {
   const [folderRenameName, setFolderRenameName] = useState('');
   const [folderNewName, setFolderNewName] = useState('');
 
-  // Bookmarks Folder Add / Rename / Delete
+  // Bookmarks Folder Modals
   const [showBookmarkFolderModal, setShowBookmarkFolderModal] = useState<'add' | 'rename' | null>(null);
   const [bookmarkOldPath, setBookmarkOldPath] = useState('');
   const [bookmarkNewPath, setBookmarkNewPath] = useState('');
   
-  // Theme and search and modal states
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
     const saved = localStorage.getItem('vaultsync-theme');
     return (saved === 'light' || saved === 'dark') ? saved : 'dark';
@@ -116,28 +119,60 @@ export function SidePanel() {
   const [sessionTimeout, setSessionTimeout] = useState<string>('always');
   const refreshIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Generator screen state
+  const [genLength, setGenLength] = useState(20);
+  const [genUpper, setGenUpper] = useState(true);
+  const [genLower, setGenLower] = useState(true);
+  const [genDigits, setGenDigits] = useState(true);
+  const [genSymbols, setGenSymbols] = useState(true);
+  const [generatedPass, setGeneratedPass] = useState('');
+  const [genCopied, setGenCopied] = useState(false);
+
+  // Active Device details State
+  const [activeDeviceIdx, setActiveDeviceIdx] = useState(0);
+
   const { s, fStyles, mStyles, isDark, c } = getThemeStyles(theme);
 
-  // -- Load session timeout preference on mount --
+  // Trigger password generation
+  const handleRegeneratePassword = useCallback(() => {
+    const p = generatePassword({
+      length: genLength,
+      uppercase: genUpper,
+      lowercase: genLower,
+      digits: genDigits,
+      symbols: genSymbols,
+      excludeAmbiguous: false
+    });
+    setGeneratedPass(p);
+    setGenCopied(false);
+  }, [genLength, genUpper, genLower, genDigits, genSymbols]);
+
   useEffect(() => {
-    chrome.runtime.sendMessage({ type: 'GET_SESSION_TIMEOUT' })
-      .then((resp: { timeout: string }) => {
-        if (resp?.timeout) setSessionTimeout(resp.timeout);
-      })
-      .catch(() => {});
+    if (tab === 'generator' && !generatedPass) {
+      handleRegeneratePassword();
+    }
+  }, [tab, generatedPass, handleRegeneratePassword]);
+
+  // Load session timeout
+  useEffect(() => {
+    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+      chrome.runtime.sendMessage({ type: 'GET_SESSION_TIMEOUT' })
+        .then((resp: { timeout: string }) => {
+          if (resp?.timeout) setSessionTimeout(resp.timeout);
+        })
+        .catch(() => {});
+    }
   }, []);
 
-  // -- Track activity and send updates to service worker --
+  // Track activity
   useEffect(() => {
-    if (typeof window === 'undefined' || typeof chrome === 'undefined' || !chrome.runtime) return;
+    if (typeof window === 'undefined' || typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) return;
 
     const updateActivity = () => {
       chrome.runtime.sendMessage({ type: 'UPDATE_ACTIVITY_TIMESTAMP' }).catch(() => {});
     };
 
-    // Initialize on mount
     updateActivity();
-
     const events = ['mousedown', 'keydown', 'click', 'scroll', 'touchstart'];
     events.forEach((ev) => window.addEventListener(ev, updateActivity));
 
@@ -146,7 +181,7 @@ export function SidePanel() {
     };
   }, []);
 
-  // -- Dynamic tab domain tracking --
+  // Track tab domain
   useEffect(() => {
     if (typeof chrome === 'undefined' || !chrome.tabs) return;
 
@@ -190,42 +225,32 @@ export function SidePanel() {
     };
   }, []);
 
-  // -- Check auth state on mount --
-  // After a browser restart, the Supabase session persists (chrome.storage.local)
-  // but the vault decryption key is lost (chrome.storage.session is ephemeral).
-  // In that case, we must show the login screen so the user re-enters their
-  // master password to re-derive the encryption key.
+  // Check auth state
   useEffect(() => {
+    if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) return;
     try {
       chrome.runtime.sendMessage({ type: 'GET_AUTH_STATE' })
         .then(async (resp: { session: any }) => {
           if (resp?.session) {
-            // Check if session has expired based on timeout setting
             const expiryResp = await chrome.runtime.sendMessage({ type: 'CHECK_SESSION_EXPIRED' });
             if (expiryResp?.expired) {
-              console.log('[VaultSync] Session timeout expired — prompting re-login');
               await chrome.runtime.sendMessage({ type: 'CLEAR_VAULT_KEY' });
               setIsAuthed(false);
               return;
             }
 
-            // Sync session to local Supabase client instance
             const { getSupabaseClient } = await import('@vaultsync/core');
             const supabase = getSupabaseClient();
             await supabase.auth.setSession(resp.session);
 
             const keyData = await chrome.runtime.sendMessage({ type: 'GET_VAULT_KEY' });
             if (keyData?.vaultKey) {
-              // Session AND key are present — fully authenticated
               const binary = atob(keyData.vaultKey);
               const bytes = new Uint8Array(binary.length);
               for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
               setVaultKey(bytes);
               setIsAuthed(true);
             } else {
-              // Session exists but vault key was lost (browser restart).
-              // Show login screen so user can re-derive the key.
-              console.log('[VaultSync] Session found but vault key missing — prompting re-login');
               setIsAuthed(false);
             }
           }
@@ -236,7 +261,7 @@ export function SidePanel() {
     }
   }, []);
 
-  // -- Data loading function --
+  // Data loader
   const loadAllData = useCallback(async (key: Uint8Array) => {
     try {
       const [items, bmarks, userFolders] = await Promise.all([
@@ -275,7 +300,6 @@ export function SidePanel() {
         };
       }));
 
-      // Bookmark Folder Tree parsing
       const paths = new Set<string>();
       bmarks.forEach(b => {
         if (b.decrypted.folderPath) paths.add(b.decrypted.folderPath);
@@ -289,14 +313,15 @@ export function SidePanel() {
       }
       setBookmarkFolderTree(buildBookmarkFolderTree(Array.from(paths)));
 
-      // Refresh badge to update extension icon notifications
-      chrome.runtime.sendMessage({ type: 'REFRESH_BADGE' }).catch(() => {});
+      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+        chrome.runtime.sendMessage({ type: 'REFRESH_BADGE' }).catch(() => {});
+      }
     } catch (e) {
       console.error('[VaultSync] Failed to load data:', e);
     }
   }, []);
 
-  // -- Folder CRUD Handlers --
+  // CRUD events
   const handleCreateFolderSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!vaultKey || !folderNewName.trim()) return;
@@ -412,16 +437,16 @@ export function SidePanel() {
             ...(isActive ? fStyles.activeRow : {}),
             paddingLeft: `${level * 12 + 12}px`
           }}
-          onClick={() => setSelectedFolderId(folder.id)}
+          onClick={() => setSelectedFolderId(isActive ? null : folder.id)}
         >
           <div 
             style={{ display: 'flex', alignItems: 'center', cursor: hasChildren ? 'pointer' : 'default', width: 14, height: 14, justifyContent: 'center' }}
             onClick={(e) => hasChildren && toggleFolder(folder.id, e)}
           >
             {hasChildren ? (
-              <ChevronRight size={12} color="#8a8f9e" style={{ transform: isExpanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s' }} />
+              <ChevronRight size={12} color="#9CA1AA" style={{ transform: isExpanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s' }} />
             ) : (
-              <div style={{ width: 12, height: 12, background: 'rgba(255,255,255,0.2)', borderRadius: 2 }} />
+              <div style={{ width: 12, height: 12, background: 'rgba(255,255,255,0.1)', borderRadius: 2 }} />
             )}
           </div>
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{folder.name}</span>
@@ -431,21 +456,21 @@ export function SidePanel() {
               onClick={() => { setFolderParentId(folder.id); setFolderNewName(''); setShowAddFolderModal(true); }}
               title="Add Subfolder"
             >
-              <Plus size={10} color="#8a8f9e" />
+              <Plus size={10} color="#9CA1AA" />
             </button>
             <button
               style={fStyles.actionBtn}
               onClick={() => { setFolderRenameId(folder.id); setFolderRenameName(folder.name); setShowRenameFolderModal(true); }}
               title="Rename"
             >
-              <Settings size={10} color="#8a8f9e" />
+              <Settings size={10} color="#9CA1AA" />
             </button>
             <button
               style={fStyles.actionBtn}
               onClick={() => handleDeleteFolder(folder.id)}
               title="Delete"
             >
-              <X size={10} color="#ef4444" />
+              <X size={10} color="#EF4444" />
             </button>
           </div>
         </div>
@@ -464,19 +489,19 @@ export function SidePanel() {
         <div
           style={{
             ...fStyles.row,
-            ...(isActive ? { ...fStyles.activeRow, color: '#a78bfa', background: 'rgba(167, 139, 250, 0.08)' } : {}),
+            ...(isActive ? { ...fStyles.activeRow, color: c.accent, background: c.accentHover } : {}),
             paddingLeft: `${level * 12 + 12}px`
           }}
-          onClick={() => setSelectedFolderPath(node.path)}
+          onClick={() => setSelectedFolderPath(isActive ? null : node.path)}
         >
           <div 
             style={{ display: 'flex', alignItems: 'center', cursor: hasChildren ? 'pointer' : 'default', width: 14, height: 14, justifyContent: 'center' }}
             onClick={(e) => hasChildren && toggleFolder(node.path, e)}
           >
             {hasChildren ? (
-              <ChevronRight size={12} color="#8a8f9e" style={{ transform: isExpanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s' }} />
+              <ChevronRight size={12} color="#9CA1AA" style={{ transform: isExpanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s' }} />
             ) : (
-              <div style={{ width: 12, height: 12, background: 'rgba(255,255,255,0.2)', borderRadius: 2 }} />
+              <div style={{ width: 12, height: 12, background: 'rgba(255,255,255,0.1)', borderRadius: 2 }} />
             )}
           </div>
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{node.name}</span>
@@ -486,14 +511,14 @@ export function SidePanel() {
               onClick={() => { setBookmarkOldPath(node.path); setBookmarkNewPath(node.path); setShowBookmarkFolderModal('rename'); }}
               title="Rename"
             >
-              <Settings size={10} color="#8a8f9e" />
+              <Settings size={10} color="#9CA1AA" />
             </button>
             <button
               style={fStyles.actionBtn}
               onClick={() => handleDeleteBookmarkFolder(node.path)}
               title="Delete"
             >
-              <X size={10} color="#ef4444" />
+              <X size={10} color="#EF4444" />
             </button>
           </div>
         </div>
@@ -502,34 +527,30 @@ export function SidePanel() {
     );
   };
 
-  // -- Load data immediately when vault key becomes available, then refresh every 15s --
+  // Realtime syncing and badge notifications setup
   useEffect(() => {
     if (!vaultKey) return;
-
-    // Initial load
     loadAllData(vaultKey);
 
-    // Periodic refresh
     refreshIntervalRef.current = setInterval(() => {
       loadAllData(vaultKey);
     }, 15000);
 
-    // Listen for data change broadcasts and session expiry from service worker
     const handleMessage = (message: { type: string }) => {
       if (message.type === 'VAULT_DATA_CHANGED') {
         loadAllData(vaultKey);
       }
       if (message.type === 'SESSION_EXPIRED') {
-        // Service worker detected timeout expiry — sign out
         setIsAuthed(false);
         setVaultItems([]);
         setBookmarks([]);
         setVaultKey(null);
       }
     };
-    chrome.runtime.onMessage.addListener(handleMessage);
+    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
+      chrome.runtime.onMessage.addListener(handleMessage);
+    }
 
-    // Setup Supabase Realtime subscriptions
     let vaultItemsSub: any = null;
     let foldersSub: any = null;
     let bookmarksSub: any = null;
@@ -543,17 +564,12 @@ export function SidePanel() {
         const { subscribeToVaultItems, subscribeToFolders, subscribeToBookmarks } = await import('@vaultsync/core');
         
         vaultItemsSub = subscribeToVaultItems(userId, () => {
-          console.log('[Extension Realtime] Vault items updated');
           loadAllData(vaultKey);
         });
-
         foldersSub = subscribeToFolders(userId, () => {
-          console.log('[Extension Realtime] Folders updated');
           loadAllData(vaultKey);
         });
-
         bookmarksSub = subscribeToBookmarks(userId, () => {
-          console.log('[Extension Realtime] Bookmarks updated');
           loadAllData(vaultKey);
         });
       } catch (err) {
@@ -565,7 +581,9 @@ export function SidePanel() {
 
     return () => {
       if (refreshIntervalRef.current) clearInterval(refreshIntervalRef.current);
-      chrome.runtime.onMessage.removeListener(handleMessage);
+      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
+        chrome.runtime.onMessage.removeListener(handleMessage);
+      }
       if (vaultItemsSub) vaultItemsSub.unsubscribe();
       if (foldersSub) foldersSub.unsubscribe();
       if (bookmarksSub) bookmarksSub.unsubscribe();
@@ -576,25 +594,26 @@ export function SidePanel() {
     setLoading(true);
     try {
       const { vaultKey: material } = await signIn({ email, masterPassword: password });
-
       const keyBase64 = btoa(String.fromCharCode(...material.key));
 
-      await chrome.runtime.sendMessage({
-        type: 'STORE_VAULT_KEY',
-        payload: { keyBase64, salt: material.salt }
-      });
+      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+        await chrome.runtime.sendMessage({
+          type: 'STORE_VAULT_KEY',
+          payload: { keyBase64, salt: material.salt }
+        });
 
-      const session = await getSession();
-      await chrome.runtime.sendMessage({
-        type: 'SYNC_SESSION',
-        payload: { session }
-      });
+        const session = await getSession();
+        await chrome.runtime.sendMessage({
+          type: 'SYNC_SESSION',
+          payload: { session }
+        });
+      }
 
       setVaultKey(material.key);
       setIsAuthed(true);
     } catch (e) {
       console.error(e);
-      alert('Login failed. Check console.');
+      alert('Login failed. Master password may be incorrect.');
     } finally {
       setLoading(false);
     }
@@ -604,19 +623,21 @@ export function SidePanel() {
     if (!editingItem || !vaultKey) return;
     setLoading(true);
     try {
-      const resp = await chrome.runtime.sendMessage({
-        type: 'UPDATE_CREDENTIAL_BY_ID',
-        payload: {
-          id: editingItem.id,
-          username: editForm.username,
-          password: editForm.password,
-          domain: editForm.domain,
-          url: editForm.domain,
-          title: editForm.title,
-          notes: editForm.notes
-        }
-      });
-      if (resp.error) throw new Error(resp.error);
+      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+        const resp = await chrome.runtime.sendMessage({
+          type: 'UPDATE_CREDENTIAL_BY_ID',
+          payload: {
+            id: editingItem.id,
+            username: editForm.username,
+            password: editForm.password,
+            domain: editForm.domain,
+            url: editForm.domain,
+            title: editForm.title,
+            notes: editForm.notes
+          }
+        });
+        if (resp.error) throw new Error(resp.error);
+      }
       setEditingItem(null);
       setIsEditing(false);
       await loadAllData(vaultKey);
@@ -639,7 +660,6 @@ export function SidePanel() {
     setIsEditing(false);
     setIsPasswordVisible(false);
   };
-
 
   const handleAdd = async () => {
     if (!vaultKey) return;
@@ -668,11 +688,13 @@ export function SidePanel() {
     setSyncing(true);
     if (!vaultKey) { alert('Vault locked'); setSyncing(false); return; }
     try {
-      const resp = await chrome.runtime.sendMessage({ type: 'SYNC_BOOKMARKS' });
-      if (resp.bookmarks) {
-        await syncBookmarks(resp.bookmarks, vaultKey);
-        await loadAllData(vaultKey);
-        alert('All bookmarks sync completed!');
+      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+        const resp = await chrome.runtime.sendMessage({ type: 'SYNC_BOOKMARKS' });
+        if (resp.bookmarks) {
+          await syncBookmarks(resp.bookmarks, vaultKey);
+          await loadAllData(vaultKey);
+          alert('Smart bookmarks sync completed!');
+        }
       }
     } catch (e) {
       console.error('[VaultSync] Bookmark sync failed:', e);
@@ -686,26 +708,25 @@ export function SidePanel() {
     setSyncing(true);
     if (!vaultKey) { alert('Vault locked'); setSyncing(false); return; }
     try {
-      const resp = await chrome.runtime.sendMessage({ type: 'SYNC_BOOKMARKS' });
-      if (resp.bookmarks) {
-        // Normalize URLs for reliable comparison
-        const existingUrls = new Set(bookmarks.map(b => b.url.toLowerCase().trim().replace(/\/$/, '')));
-        
-        // Filter out browser bookmarks that already exist in vault
-        const missing = resp.bookmarks.filter((b: any) => {
-          const urlNormalized = b.url.toLowerCase().trim().replace(/\/$/, '');
-          return !existingUrls.has(urlNormalized);
-        });
+      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+        const resp = await chrome.runtime.sendMessage({ type: 'SYNC_BOOKMARKS' });
+        if (resp.bookmarks) {
+          const existingUrls = new Set(bookmarks.map(b => b.url.toLowerCase().trim().replace(/\/$/, '')));
+          const missing = resp.bookmarks.filter((b: any) => {
+            const urlNormalized = b.url.toLowerCase().trim().replace(/\/$/, '');
+            return !existingUrls.has(urlNormalized);
+          });
 
-        if (missing.length === 0) {
-          alert('All your browser bookmarks are already in the vault!');
-          setSyncing(false);
-          return;
+          if (missing.length === 0) {
+            alert('All your browser bookmarks are already in the vault!');
+            setSyncing(false);
+            return;
+          }
+
+          await syncBookmarks(missing, vaultKey);
+          await loadAllData(vaultKey);
+          alert(`Successfully synced ${missing.length} missing bookmarks!`);
         }
-
-        await syncBookmarks(missing, vaultKey);
-        await loadAllData(vaultKey);
-        alert(`Successfully added ${missing.length} missing bookmarks to the vault!`);
       }
     } catch (e) {
       console.error('[VaultSync] Smart bookmark sync failed:', e);
@@ -721,9 +742,23 @@ export function SidePanel() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  // -- Search and Folder filtering --
+  // Filter items by strength and search
+  const getPasswordStrengthScore = (password: string): number => {
+    const strength = estimateStrength(password);
+    return strength.score;
+  };
+
   const filteredVaultItems = vaultItems.filter(item => {
-    if (selectedFolderId && (item as any).folderId !== selectedFolderId) return false;
+    if (selectedFolderId && item.folderId !== selectedFolderId) return false;
+    
+    // Apply strength filters
+    if (strengthFilter !== 'all') {
+      const score = getPasswordStrengthScore(item.passwordDecrypted);
+      if (strengthFilter === 'weak' && score > 1) return false;
+      if (strengthFilter === 'reused' && (score !== 2 && score !== 3)) return false; // repurpose reused as medium score
+      if (strengthFilter === 'strong' && score !== 4) return false;
+    }
+
     if (!search) return true;
     const q = search.toLowerCase();
     return item.title.toLowerCase().includes(q) || item.username.toLowerCase().includes(q) || item.domain.toLowerCase().includes(q);
@@ -742,21 +777,40 @@ export function SidePanel() {
   const domainItems = filteredVaultItems.filter(i => i.domain === currentDomain);
   const otherItems = filteredVaultItems.filter(i => i.domain !== currentDomain);
 
-  // Auth Screen
+  // Security score metrics
+  const totalPasswords = vaultItems.length;
+  const weakCount = vaultItems.filter(i => getPasswordStrengthScore(i.passwordDecrypted) <= 1).length;
+  const reusedCount = vaultItems.filter(i => {
+    const score = getPasswordStrengthScore(i.passwordDecrypted);
+    return score === 2 || score === 3;
+  }).length;
+  const strongCount = vaultItems.filter(i => getPasswordStrengthScore(i.passwordDecrypted) === 4).length;
+  const healthPercent = totalPasswords > 0 
+    ? Math.round(((strongCount + reusedCount * 0.5) / totalPasswords) * 100) 
+    : 100;
+
+  // Active devices mock data
+  const devicesList = [
+    { name: 'Chrome Extension', icon: <Laptop size={20} />, location: 'Paris, France', flag: '🇫🇷', ip: '194.254.120.10', time: 'Active Now', trusted: true },
+    { name: 'iPhone 16 Pro', icon: <Smartphone size={20} />, location: 'Paris, France', flag: '🇫🇷', ip: '194.254.120.11', time: '10 mins ago', trusted: true },
+    { name: 'MacBook Pro', icon: <Laptop size={20} />, location: 'New York, USA', flag: '🇺🇸', ip: '64.233.160.10', time: 'Jan 12, 13:00', trusted: false },
+  ];
+
+  // Auth screen
   if (!isAuthed) {
     return (
       <div style={s.panel}>
         <div style={s.authContainer}>
-          <div style={{ ...s.logo, width: 48, height: 48, borderRadius: 14 }}>
-            <Shield size={24} color="white" />
+          <div style={s.logo}>
+            <Shield size={20} color="#1F2228" />
           </div>
-          <h1 style={{ fontSize: '20px', fontWeight: 800, color: '#f2f2f2', margin: '8px 0 4px' }}>VaultSync</h1>
-          <p style={{ fontSize: '13px', color: '#8a8f9e', textAlign: 'center', marginBottom: '16px' }}>
-            Sign in to access your encrypted vault
+          <h1 style={{ fontSize: '32px', fontWeight: 600, color: '#FFFFFF', margin: '16px 0 4px', letterSpacing: '-0.5px' }}>VaultSync</h1>
+          <p style={{ fontSize: '14px', color: '#C7CBD1', textAlign: 'center', marginBottom: '24px' }}>
+            Slate & Yellow Zero-Knowledge Vault
           </p>
           <input
             style={s.authInput}
-            placeholder="Email"
+            placeholder="Email Address"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
@@ -770,64 +824,68 @@ export function SidePanel() {
             onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
           />
           <button style={s.authBtn} onClick={handleLogin} disabled={loading}>
-            {loading ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : <Lock size={16} />}
-            {loading ? 'Unlocking...' : 'Unlock Vault'}
+            {loading ? <Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /> : <Lock size={18} />}
+            {loading ? 'Unlocking Vault...' : 'Unlock Vault'}
           </button>
         </div>
       </div>
     );
   }
 
-  // Main Panel
+  // Main panel
   return (
     <div style={s.panel}>
       {/* Header */}
       <div style={s.header}>
-        <div style={{ ...s.headerRow, marginBottom: 0, justifyContent: 'space-between', position: 'relative', height: 28, alignItems: 'center' }}>
+        <div style={{ ...s.headerRow, marginBottom: 0, justifyContent: 'space-between', position: 'relative', height: 44, alignItems: 'center' }}>
           {!isSearchOpen ? (
             <>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <div style={s.logo}><Shield size={14} color="white" /></div>
-                <span style={s.title}>VaultSync</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={s.logo}><Shield size={16} color="#1F2228" /></div>
+                <span style={{ fontSize: '18px', fontWeight: 600, color: '#FFFFFF' }}>VaultSync</span>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {tab === 'vault' && (
+                  <button
+                    style={s.iconBtn}
+                    onClick={() => setIsSearchOpen(true)}
+                    title="Search"
+                  >
+                    <Search size={16} />
+                  </button>
+                )}
+                {tab === 'vault' && (
+                  <button
+                    style={{ ...s.iconBtn, color: c.accent }}
+                    title="Open Web Dashboard"
+                    onClick={() => typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.create({ url: 'https://vaultsync-passwords.netlify.app/vault' })}
+                  >
+                    <ExternalLink size={16} />
+                  </button>
+                )}
                 <button
-                  style={s.iconBtn}
-                  onClick={() => setIsSearchOpen(true)}
-                  title="Search"
-                >
-                  <Search size={14} />
-                </button>
-                <button
-                  style={{ ...s.iconBtn, color: c.accent }}
-                  title="Open Web Dashboard"
-                  onClick={() => typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.create({ url: 'https://vaultsync-passwords.netlify.app/vault' })}
-                >
-                  <ExternalLink size={14} />
-                </button>
-                <button
-                  style={{ ...s.iconBtn, animation: syncing ? 'spin 1s linear infinite' : 'none' }}
-                  title="Refresh vault"
+                  style={{ ...s.iconBtn, animation: syncing ? 'spin 1s linear' : 'none' }}
+                  title="Refresh data"
                   onClick={() => vaultKey && loadAllData(vaultKey)}
                 >
-                  <RefreshCw size={14} />
+                  <RefreshCw size={16} />
                 </button>
               </div>
             </>
           ) : (
-            <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: '8px', animation: 'fadeIn 0.2s ease-out' }}>
+            <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: '8px' }}>
               <div style={{ position: 'relative', flex: 1 }}>
-                <Search size={14} style={{ position: 'absolute', left: 10, top: 11, color: c.textSub }} />
+                <Search size={16} style={{ position: 'absolute', left: 12, top: 14, color: c.textMuted }} />
                 <input
-                  style={{ ...s.searchInput, width: '100%', paddingLeft: 34 }}
-                  placeholder={tab === 'bookmarks' ? 'Search bookmarks...' : 'Search vault...'}
+                  style={{ ...s.searchInput, width: '100%', paddingLeft: 38 }}
+                  placeholder={subTab === 'bookmarks' ? 'Search bookmarks...' : 'Search vault...'}
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   autoFocus
                 />
               </div>
               <button
-                style={{ ...s.iconBtn, color: '#ef4444' }}
+                style={{ ...s.iconBtn, background: 'rgba(239,68,68,0.1)', color: '#EF4444' }}
                 onClick={() => {
                   setIsSearchOpen(false);
                   setSearch('');
@@ -842,275 +900,610 @@ export function SidePanel() {
 
       {/* Content */}
       <div style={s.content}>
+        
+        {/* VAULT TAB */}
         {tab === 'vault' && (
           <>
-            <div style={fStyles.section}>
-              <div style={fStyles.header}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }} onClick={() => setShowFoldersList(!showFoldersList)}>
-                  📁 Folders {showFoldersList ? '▲' : '▼'}
-                </span>
-                <button
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex' }}
-                  onClick={() => { setFolderParentId(undefined); setFolderNewName(''); setShowAddFolderModal(true); }}
-                >
-                  <Plus size={12} color="#5ce0d6" />
-                </button>
-              </div>
-              
-              {showFoldersList && (
-                <div style={fStyles.card}>
-                  {passwordFolderTree.length === 0 ? (
-                    <div style={{ padding: '10px', color: '#4a5068', fontSize: '11px', textAlign: 'center' }}>No folders</div>
-                  ) : (
-                    passwordFolderTree.map(f => renderPasswordFolder(f, 0))
-                  )}
-                </div>
-              )}
+            {/* PillTab for switching Logins/Bookmarks */}
+            <div style={{ display: 'flex', background: 'rgba(23, 24, 25, 0.2)', padding: '4px', borderRadius: '999px', marginBottom: '16px' }}>
+              <button 
+                style={{ 
+                  flex: 1, padding: '10px 0', border: 'none', borderRadius: '999px', fontSize: '13px', fontWeight: 600, cursor: 'pointer',
+                  background: subTab === 'logins' ? c.accent : 'transparent',
+                  color: subTab === 'logins' ? '#1F2228' : '#C7CBD1'
+                }}
+                onClick={() => setSubTab('logins')}
+              >
+                Logins
+              </button>
+              <button 
+                style={{ 
+                  flex: 1, padding: '10px 0', border: 'none', borderRadius: '999px', fontSize: '13px', fontWeight: 600, cursor: 'pointer',
+                  background: subTab === 'bookmarks' ? c.accent : 'transparent',
+                  color: subTab === 'bookmarks' ? '#1F2228' : '#C7CBD1'
+                }}
+                onClick={() => setSubTab('bookmarks')}
+              >
+                Bookmarks
+              </button>
             </div>
 
-            {selectedFolderId && (
-              <div style={fStyles.filterBadge}>
-                <span>Active Folder: {folders.find(f => f.id === selectedFolderId)?.name}</span>
-                <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#5ce0d6', display: 'flex' }} onClick={() => setSelectedFolderId(null)}>
-                  <X size={14} />
-                </button>
-              </div>
-            )}
-
-            {currentDomain && (
+            {/* LOGINS SECTION */}
+            {subTab === 'logins' && (
               <>
-                <div style={s.sectionLabel}>This Site ({currentDomain})</div>
-                {domainItems.length > 0 && (
-                  domainItems.map(item => (
-                    <div
-                      key={item.id}
-                      className="premium-card"
-                      style={{ ...s.itemCard, border: `1px solid ${c.accent}33`, background: `${c.accent}0A` }}
-                      onClick={() => handleEditOpen(item, item.passwordDecrypted)}
+                {/* Stat Capsule Filters */}
+                <div style={{ ...s.statsBar, padding: '0 0 16px 0' }}>
+                  <div 
+                    style={strengthFilter === 'all' ? s.statPillActive : s.statPill}
+                    onClick={() => setStrengthFilter('all')}
+                  >
+                    <div style={strengthFilter === 'all' ? s.statNumberActive : s.statNumber}>{totalPasswords}</div>
+                    <div style={strengthFilter === 'all' ? s.statLabelActive : s.statLabel}>Total</div>
+                  </div>
+                  <div 
+                    style={strengthFilter === 'weak' ? s.statPillActive : s.statPill}
+                    onClick={() => setStrengthFilter('weak')}
+                  >
+                    <div style={strengthFilter === 'weak' ? s.statNumberActive : s.statNumber}>{weakCount}</div>
+                    <div style={strengthFilter === 'weak' ? s.statLabelActive : s.statLabel}>Weak</div>
+                  </div>
+                  <div 
+                    style={strengthFilter === 'reused' ? s.statPillActive : s.statPill}
+                    onClick={() => setStrengthFilter('reused')}
+                  >
+                    <div style={strengthFilter === 'reused' ? s.statNumberActive : s.statNumber}>{reusedCount}</div>
+                    <div style={strengthFilter === 'reused' ? s.statLabelActive : s.statLabel}>Medium</div>
+                  </div>
+                  <div 
+                    style={strengthFilter === 'strong' ? s.statPillActive : s.statPill}
+                    onClick={() => setStrengthFilter('strong')}
+                  >
+                    <div style={strengthFilter === 'strong' ? s.statNumberActive : s.statNumber}>{strongCount}</div>
+                    <div style={strengthFilter === 'strong' ? s.statLabelActive : s.statLabel}>Strong</div>
+                  </div>
+                </div>
+
+                {/* Folders Accordion */}
+                <div style={fStyles.section}>
+                  <div style={fStyles.header}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }} onClick={() => setShowFoldersList(!showFoldersList)}>
+                      📁 Folders {showFoldersList ? '▲' : '▼'}
+                    </span>
+                    <button
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex' }}
+                      onClick={() => { setFolderParentId(undefined); setFolderNewName(''); setShowAddFolderModal(true); }}
                     >
-                      <div style={s.favicon}>
-                        {getFaviconUrl(currentDomain) ? (
-                          <img src={getFaviconUrl(currentDomain)} width={20} height={20} alt="" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                        ) : (
-                          <Key size={14} color="#8a8f9e" />
-                        )}
-                      </div>
-                      <div style={s.itemInfo}>
-                        <div style={s.itemTitle}>{item.title}</div>
-                        <div style={s.itemSub}>{item.username}</div>
-                      </div>
-                      <button
-                        style={{ ...s.iconBtn, color: copiedId === item.id ? '#22c55e' : '#8a8f9e' }}
-                        onClick={(e) => { e.stopPropagation(); handleCopy(item.username, item.id); }}
-                      >
-                        {copiedId === item.id ? <Check size={14} /> : <Copy size={14} />}
-                      </button>
+                      <Plus size={14} color={c.accent} />
+                    </button>
+                  </div>
+                  
+                  {showFoldersList && (
+                    <div style={fStyles.card}>
+                      {passwordFolderTree.length === 0 ? (
+                        <div style={{ padding: '12px', color: c.textMuted, fontSize: '13px', textAlign: 'center' }}>No folders created yet</div>
+                      ) : (
+                        passwordFolderTree.map(f => renderPasswordFolder(f, 0))
+                      )}
                     </div>
-                  ))
+                  )}
+                </div>
+
+                {selectedFolderId && (
+                  <div style={fStyles.filterBadge}>
+                    <span>Active Folder: {folders.find(f => f.id === selectedFolderId)?.name}</span>
+                    <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: c.accent, display: 'flex' }} onClick={() => setSelectedFolderId(null)}>
+                      <X size={14} />
+                    </button>
+                  </div>
                 )}
-                {isAdding ? (
-                  <div style={{ ...s.itemCard, flexDirection: 'column', alignItems: 'stretch', gap: 8, background: 'rgba(92,224,214,0.08)' }}>
-                    <input style={s.authInput} placeholder="Username" value={addUsername} onChange={(e) => setAddUsername(e.target.value)} />
-                    <input style={s.authInput} type="password" placeholder="Password" value={addPassword} onChange={(e) => setAddPassword(e.target.value)} />
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <button style={{ ...mStyles.saveBtn, height: 32, flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={handleAdd} disabled={loading}>{loading ? 'Saving...' : 'Save'}</button>
-                      <button style={{ ...mStyles.cancelBtn, height: 32, flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: 0 }} onClick={() => setIsAdding(false)}>Cancel</button>
-                    </div>
+
+                {/* This Site matching passwords */}
+                {currentDomain && (
+                  <>
+                    <div style={s.sectionLabel}>This Site ({currentDomain})</div>
+                    {domainItems.length > 0 && (
+                      domainItems.map(item => {
+                        const isSelected = editingItem?.id === item.id;
+                        const score = getPasswordStrengthScore(item.passwordDecrypted);
+                        const isWeak = score <= 1;
+                        
+                        return (
+                          <div
+                            key={item.id}
+                            style={isSelected ? s.itemCardSelected : s.itemCard}
+                            onClick={() => handleEditOpen(item, item.passwordDecrypted)}
+                          >
+                            <div style={s.favicon}>
+                              {getFaviconUrl(currentDomain) ? (
+                                <img src={getFaviconUrl(currentDomain)} width={24} height={24} alt="" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                              ) : (
+                                <Key size={16} color={isSelected ? '#1F2228' : '#FFFFFF'} />
+                              )}
+                            </div>
+                            <div style={s.itemInfo}>
+                              <div style={isSelected ? s.itemTitleDark : s.itemTitle}>{item.title}</div>
+                              <div style={isSelected ? s.itemSubDark : s.itemSub}>{item.username}</div>
+                            </div>
+
+                            {/* Status badge representing strength */}
+                            <div style={{
+                              padding: '4px 8px', borderRadius: '999px', fontSize: '10px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px',
+                              background: isWeak ? 'rgba(239,68,68,0.15)' : 'rgba(34,197,94,0.15)',
+                              color: isWeak ? '#EF4444' : '#22C55E'
+                            }}>
+                              <span style={{ width: 4, height: 4, borderRadius: '50%', background: isWeak ? '#EF4444' : '#22C55E' }}></span>
+                              {isWeak ? 'Weak' : 'Strong'}
+                            </div>
+
+                            <button
+                              style={{ ...s.iconBtn, background: 'transparent', color: isSelected ? '#1F2228' : (copiedId === item.id ? '#22C55E' : '#9CA1AA') }}
+                              onClick={(e) => { e.stopPropagation(); handleCopy(item.passwordDecrypted, item.id); }}
+                            >
+                              {copiedId === item.id ? <Check size={16} /> : <Copy size={16} />}
+                            </button>
+                          </div>
+                        );
+                      })
+                    )}
+                    {isAdding ? (
+                      <div style={{ ...s.itemCard, flexDirection: 'column', alignItems: 'stretch', gap: 10, background: 'rgba(255, 255, 255, 0.04)' }}>
+                        <input style={s.authInput} placeholder="Username/Email" value={addUsername} onChange={(e) => setAddUsername(e.target.value)} />
+                        <input style={s.authInput} type="password" placeholder="Password" value={addPassword} onChange={(e) => setAddPassword(e.target.value)} />
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <button style={{ ...mStyles.saveBtn, height: 36, flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={handleAdd} disabled={loading}>{loading ? 'Saving...' : 'Save'}</button>
+                          <button style={{ ...mStyles.cancelBtn, height: 36, flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: 0 }} onClick={() => setIsAdding(false)}>Cancel</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ ...s.itemCard, border: `1px solid ${c.accent}22`, background: c.accentSoft }}>
+                        <div style={s.favicon}><Key size={18} color={c.accent} /></div>
+                        <div style={s.itemInfo}>
+                          <div style={s.itemTitle}>New Credentials</div>
+                          <div style={s.itemSub}>Save password for {currentDomain}</div>
+                        </div>
+                        <button style={s.iconBtn} onClick={() => setIsAdding(true)}><Plus size={16} color="#1F2228" /></button>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* All Passwords list */}
+                <div style={s.sectionLabel}>All Logins</div>
+                {otherItems.length === 0 && domainItems.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '40px 20px', color: c.textSec }}>
+                    <Key size={40} style={{ marginBottom: 12, opacity: 0.3 }} />
+                    <div style={{ fontSize: '15px', fontWeight: 600 }}>Your vault is empty</div>
+                    <div style={{ fontSize: '13px', marginTop: 4 }}>Add passwords from the dashboard or mobile app</div>
                   </div>
                 ) : (
-                  <div style={{ ...s.itemCard, border: '1px solid rgba(92,224,214,0.15)', background: 'rgba(92,224,214,0.04)' }}>
-                    <div style={s.favicon}><Key size={16} color="#5ce0d6" /></div>
-                    <div style={s.itemInfo}>
-                      <div style={s.itemTitle}>New Credential</div>
-                      <div style={s.itemSub}>Add password for {currentDomain}</div>
-                    </div>
-                    <button style={s.iconBtn} onClick={() => setIsAdding(true)}><Plus size={14} color="#5ce0d6" /></button>
-                  </div>
+                  otherItems.map((item) => {
+                    const isSelected = editingItem?.id === item.id;
+                    const score = getPasswordStrengthScore(item.passwordDecrypted);
+                    const isWeak = score <= 1;
+                    
+                    return (
+                      <div
+                        key={item.id}
+                        style={isSelected ? s.itemCardSelected : s.itemCard}
+                        onClick={() => handleEditOpen(item, item.passwordDecrypted)}
+                      >
+                        <div style={s.favicon}>
+                          {item.domain && getFaviconUrl(item.domain) ? (
+                            <img src={getFaviconUrl(item.domain)} width={24} height={24} alt="" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                          ) : (
+                            <Key size={16} color={isSelected ? '#1F2228' : '#FFFFFF'} />
+                          )}
+                        </div>
+                        <div style={s.itemInfo}>
+                          <div style={isSelected ? s.itemTitleDark : s.itemTitle}>{item.title}</div>
+                          <div style={isSelected ? s.itemSubDark : s.itemSub}>{item.username}</div>
+                        </div>
+
+                        {/* Status Badge */}
+                        <div style={{
+                          padding: '4px 8px', borderRadius: '999px', fontSize: '10px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px',
+                          background: isWeak ? 'rgba(239,68,68,0.15)' : 'rgba(34,197,94,0.15)',
+                          color: isWeak ? '#EF4444' : '#22C55E'
+                        }}>
+                          <span style={{ width: 4, height: 4, borderRadius: '50%', background: isWeak ? '#EF4444' : '#22C55E' }}></span>
+                          {isWeak ? 'Weak' : 'Strong'}
+                        </div>
+
+                        <button
+                          style={{ ...s.iconBtn, background: 'transparent', color: isSelected ? '#1F2228' : (copiedId === item.id ? '#22C55E' : '#9CA1AA') }}
+                          onClick={(e) => { e.stopPropagation(); handleCopy(item.passwordDecrypted, item.id); }}
+                        >
+                          {copiedId === item.id ? <Check size={16} /> : <Copy size={16} />}
+                        </button>
+                      </div>
+                    );
+                  })
                 )}
               </>
             )}
 
-            <div style={s.sectionLabel}>All Passwords</div>
-            {otherItems.length === 0 && domainItems.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '32px 16px', color: '#4a5068' }}>
-                <Key size={32} style={{ marginBottom: 12, opacity: 0.4 }} />
-                <div style={{ fontSize: '13px', fontWeight: 500 }}>Your vault is empty</div>
-                <div style={{ fontSize: '11px', marginTop: 4 }}>Add passwords from the web app or use autofill</div>
-              </div>
-            ) : (
-              otherItems.map((item) => (
-                <div
-                  key={item.id}
-                  className="premium-card"
-                  style={s.itemCard}
-                  onClick={() => handleEditOpen(item, item.passwordDecrypted)}
-                >
-                  <div style={s.favicon}>
-                    {item.domain && getFaviconUrl(item.domain) ? (
-                      <img src={getFaviconUrl(item.domain)} width={20} height={20} alt="" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                    ) : (
-                      <Key size={14} color="#8a8f9e" />
-                    )}
+            {/* BOOKMARKS SECTION */}
+            {subTab === 'bookmarks' && (
+              <>
+                {/* Folders Accordion for Bookmarks */}
+                <div style={fStyles.section}>
+                  <div style={fStyles.header}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }} onClick={() => setShowFoldersList(!showFoldersList)}>
+                      📁 Folders {showFoldersList ? '▲' : '▼'}
+                    </span>
+                    <button
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex' }}
+                      onClick={() => { setBookmarkNewPath(''); setShowBookmarkFolderModal('add'); }}
+                    >
+                      <Plus size={14} color={c.accent} />
+                    </button>
                   </div>
-                  <div style={s.itemInfo}>
-                    <div style={s.itemTitle}>{item.title}</div>
-                    <div style={s.itemSub}>{item.username}</div>
-                  </div>
-                  <button
-                    style={{ ...s.iconBtn, color: copiedId === item.id ? '#22c55e' : '#8a8f9e' }}
-                    onClick={(e) => { e.stopPropagation(); handleCopy(item.username, item.id); }}
-                  >
-                    {copiedId === item.id ? <Check size={14} /> : <Copy size={14} />}
-                  </button>
-                </div>
-              ))
-            )}
-          </>
-        )}
 
-        {tab === 'bookmarks' && (
-          <>
-            <div style={fStyles.section}>
-              <div style={fStyles.header}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }} onClick={() => setShowFoldersList(!showFoldersList)}>
-                  📁 Folders {showFoldersList ? '▲' : '▼'}
-                </span>
-                <button
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex' }}
-                  onClick={() => { setBookmarkNewPath(''); setShowBookmarkFolderModal('add'); }}
-                >
-                  <Plus size={12} color="#a78bfa" />
-                </button>
-              </div>
-
-              {showFoldersList && (
-                <div style={fStyles.card}>
-                  {bookmarkFolderTree.length === 0 ? (
-                    <div style={{ padding: '10px', color: '#4a5068', fontSize: '11px', textAlign: 'center' }}>No folders</div>
-                  ) : (
-                    bookmarkFolderTree.map(n => renderBookmarkFolder(n, 0))
+                  {showFoldersList && (
+                    <div style={fStyles.card}>
+                      {bookmarkFolderTree.length === 0 ? (
+                        <div style={{ padding: '12px', color: c.textMuted, fontSize: '13px', textAlign: 'center' }}>No folders created yet</div>
+                      ) : (
+                        bookmarkFolderTree.map(n => renderBookmarkFolder(n, 0))
+                      )}
+                    </div>
                   )}
                 </div>
-              )}
-            </div>
 
-            {selectedFolderPath && (
-              <div style={{ ...fStyles.filterBadge, background: 'rgba(167, 139, 250, 0.1)', borderColor: 'rgba(167, 139, 250, 0.2)', color: '#a78bfa' }}>
-                <span>Active Folder: {selectedFolderPath}</span>
-                <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#a78bfa', display: 'flex' }} onClick={() => setSelectedFolderPath(null)}>
-                  <X size={14} />
-                </button>
-              </div>
-            )}
+                {selectedFolderPath && (
+                  <div style={{ ...fStyles.filterBadge, background: 'rgba(255,255,255,0.06)', border: `1px solid ${c.accent}`, color: c.accent }}>
+                    <span>Active Folder: {selectedFolderPath}</span>
+                    <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: c.accent, display: 'flex' }} onClick={() => setSelectedFolderPath(null)}>
+                      <X size={14} />
+                    </button>
+                  </div>
+                )}
 
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-              <div style={s.sectionLabel}>Synced Bookmarks</div>
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                <button
-                  style={{
-                    background: 'rgba(92,224,214,0.15)',
-                    border: '1px solid rgba(92,224,214,0.3)',
-                    color: '#5ce0d6',
-                    cursor: 'pointer',
-                    fontSize: '9px',
-                    fontWeight: 700,
-                    padding: '3px 8px',
-                    borderRadius: 6,
-                    fontFamily: 'inherit',
-                  }}
-                  onClick={handleSyncBookmarksOnlyMissing}
-                  disabled={syncing}
-                  title="Compare and sync missing bookmarks only"
-                >
-                  Smart Sync
-                </button>
-                <button
-                  style={{ ...s.iconBtn, color: syncing ? '#5ce0d6' : '#4a5068', animation: syncing ? 'spin 1s linear infinite' : 'none' }}
-                  onClick={handleSyncBookmarks}
-                  title="Sync all bookmarks (upsert)"
-                >
-                  <RefreshCw size={12} />
-                </button>
-              </div>
-            </div>
-            {filteredBookmarks.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '32px 16px', color: '#4a5068' }}>
-                <Bookmark size={32} style={{ marginBottom: 12, opacity: 0.4 }} />
-                <div style={{ fontSize: '13px', fontWeight: 500 }}>No bookmarks yet</div>
-                <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 12 }}>
-                  <button
-                    style={{ ...s.authBtn, width: 'auto', padding: '8px 16px', fontSize: '11px' }}
-                    onClick={handleSyncBookmarksOnlyMissing}
-                    disabled={syncing}
-                  >
-                    <RefreshCw size={12} /> Smart Sync
-                  </button>
-                  <button
-                    style={{ ...s.authBtn, width: 'auto', padding: '8px 16px', fontSize: '11px', background: 'rgba(255,255,255,0.06)', color: '#f2f2f2', border: '1px solid rgba(255,255,255,0.08)' }}
-                    onClick={handleSyncBookmarks}
-                    disabled={syncing}
-                  >
-                    Sync All
-                  </button>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                  <div style={s.sectionLabel}>Synced Bookmarks</div>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <button
+                      style={{
+                        background: c.accentSoft,
+                        border: `1px solid ${c.accent}`,
+                        color: c.accent,
+                        cursor: 'pointer',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        padding: '4px 10px',
+                        borderRadius: '999px',
+                        fontFamily: 'inherit',
+                      }}
+                      onClick={handleSyncBookmarksOnlyMissing}
+                      disabled={syncing}
+                      title="Sync missing bookmarks only"
+                    >
+                      Smart Sync
+                    </button>
+                    <button
+                      style={{ ...s.iconBtn, color: syncing ? c.accent : '#9CA1AA', animation: syncing ? 'spin 1s linear infinite' : 'none' }}
+                      onClick={handleSyncBookmarks}
+                      title="Sync all bookmarks"
+                    >
+                      <RefreshCw size={14} />
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ) : (
-              filteredBookmarks.map((b) => (
-                <a key={b.id} href={b.url} target="_blank" rel="noreferrer" style={{ ...s.itemCard, textDecoration: 'none' }}>
-                  <div style={s.favicon}>
-                    {b.favicon ? (
-                      <img src={b.favicon} width={20} height={20} alt="" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                    ) : (
-                      <Bookmark size={14} color="#8a8f9e" />
-                    )}
+
+                {filteredBookmarks.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '40px 20px', color: c.textSec }}>
+                    <Bookmark size={40} style={{ marginBottom: 12, opacity: 0.3 }} />
+                    <div style={{ fontSize: '15px', fontWeight: 600 }}>No bookmarks yet</div>
+                    <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 16 }}>
+                      <button
+                        style={{ ...s.authBtn, width: 'auto', padding: '10px 16px', fontSize: '12px' }}
+                        onClick={handleSyncBookmarksOnlyMissing}
+                        disabled={syncing}
+                      >
+                        <RefreshCw size={14} /> Smart Sync
+                      </button>
+                    </div>
                   </div>
-                  <div style={s.itemInfo}>
-                    <div style={s.itemTitle}>{b.title}</div>
-                    <div style={s.itemSub}>{b.domain}</div>
-                  </div>
-                  <ExternalLink size={12} color="#4a5068" />
-                </a>
-              ))
+                ) : (
+                  filteredBookmarks.map((b) => (
+                    <a key={b.id} href={b.url} target="_blank" rel="noreferrer" style={{ ...s.itemCard, textDecoration: 'none' }}>
+                      <div style={s.favicon}>
+                        {b.favicon ? (
+                          <img src={b.favicon} width={24} height={24} alt="" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                        ) : (
+                          <Bookmark size={16} color="#FFFFFF" />
+                        )}
+                      </div>
+                      <div style={s.itemInfo}>
+                        <div style={s.itemTitle}>{b.title}</div>
+                        <div style={s.itemSub}>{b.domain}</div>
+                      </div>
+                      <ExternalLink size={14} color="#9CA1AA" />
+                    </a>
+                  ))
+                )}
+              </>
             )}
           </>
         )}
 
+        {/* GENERATOR TAB */}
+        {tab === 'generator' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {/* Display Box */}
+            <div style={{ background: c.card, borderRadius: '28px', border: `1px solid ${c.cardBorder}`, padding: '24px', textAlign: 'center', boxShadow: '0 4px 16px rgba(0,0,0,0.1)' }}>
+              <div style={{
+                fontFamily: "monospace", fontSize: '18px', color: '#FFFFFF', wordBreak: 'break-all',
+                background: 'rgba(23, 24, 25, 0.2)', padding: '16px', borderRadius: '12px', marginBottom: '16px', letterSpacing: '0.5px'
+              }}>
+                {generatedPass || 'Loading...'}
+              </div>
+
+              {/* Password strength progress bar */}
+              {(() => {
+                const sScore = getPasswordStrengthScore(generatedPass);
+                const sColors = ['#EF4444', '#F97316', '#F4E11A', '#84CC16', '#22C55E'];
+                const sLabels = ['Very Weak', 'Weak', 'Medium', 'Strong', 'Excellent'];
+                return (
+                  <div style={{ marginBottom: '20px' }}>
+                    <div style={{ display: 'flex', gap: '4px', height: '6px', width: '100%', marginBottom: '8px', background: 'rgba(255,255,255,0.06)', borderRadius: '3px', overflow: 'hidden' }}>
+                      {[0, 1, 2, 3, 4].map(idx => (
+                        <div key={idx} style={{ flex: 1, background: idx <= sScore ? sColors[sScore] : 'transparent', transition: 'background 0.2s' }}></div>
+                      ))}
+                    </div>
+                    <div style={{ fontSize: '13px', fontWeight: 600, color: sColors[sScore] }}>
+                      {sLabels[sScore]} Strength
+                    </div>
+                  </div>
+                );
+              })()}
+
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <button 
+                  style={{ ...mStyles.saveBtn, flex: 1, height: '44px', borderRadius: '999px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                  onClick={async () => {
+                    await navigator.clipboard.writeText(generatedPass);
+                    setGenCopied(true);
+                    setTimeout(() => setGenCopied(false), 2000);
+                  }}
+                >
+                  <Copy size={16} />
+                  {genCopied ? 'Copied!' : 'Copy Password'}
+                </button>
+                <button 
+                  style={{ ...mStyles.cancelBtn, flex: 1, height: '44px', borderRadius: '999px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', border: `1px solid ${c.cardBorder}` }}
+                  onClick={handleRegeneratePassword}
+                >
+                  <RefreshCw size={16} />
+                  Regenerate
+                </button>
+              </div>
+            </div>
+
+            {/* Slider */}
+            <div style={{ background: c.card, borderRadius: '28px', border: `1px solid ${c.cardBorder}`, padding: '20px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                <span style={{ fontSize: '14px', fontWeight: 600, color: '#FFFFFF' }}>Length</span>
+                <span style={{ fontSize: '16px', fontWeight: 700, color: c.accent }}>{genLength}</span>
+              </div>
+              <input 
+                type="range" min="8" max="64" value={genLength} 
+                style={{ width: '100%', accentColor: c.accent, cursor: 'pointer' }}
+                onChange={(e) => {
+                  setGenLength(Number(e.target.value));
+                  // Debounced/immediate regenerate
+                  setTimeout(handleRegeneratePassword, 1);
+                }} 
+              />
+            </div>
+
+            {/* Checkbox Options */}
+            <div style={{ background: c.card, borderRadius: '28px', border: `1px solid ${c.cardBorder}`, padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {[
+                { state: genUpper, setter: setGenUpper, label: 'Uppercase (A-Z)' },
+                { state: genLower, setter: setGenLower, label: 'Lowercase (a-z)' },
+                { state: genDigits, setter: setGenDigits, label: 'Numbers (0-9)' },
+                { state: genSymbols, setter: setGenSymbols, label: 'Symbols (!@#$)' },
+              ].map((opt, idx) => (
+                <label key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', userSelect: 'none' }}>
+                  <span style={{ fontSize: '14px', color: '#FFFFFF' }}>{opt.label}</span>
+                  <input 
+                    type="checkbox" checked={opt.state} 
+                    style={{ width: '18px', height: '18px', accentColor: c.accent }}
+                    onChange={() => {
+                      opt.setter(!opt.state);
+                      setTimeout(handleRegeneratePassword, 1);
+                    }} 
+                  />
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* SECURITY TAB */}
+        {tab === 'security' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {/* Health Score Gauge */}
+            <div style={{ background: c.card, borderRadius: '28px', border: `1px solid ${c.cardBorder}`, padding: '24px', textCenter: 'center', boxShadow: '0 4px 16px rgba(0,0,0,0.1)', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <span style={{ fontSize: '14px', fontWeight: 600, color: '#C7CBD1', marginBottom: '16px' }}>Security Score</span>
+              
+              {/* Semi-circular donut chart */}
+              <div style={{ position: 'relative', width: '160px', height: '90px', overflow: 'hidden', display: 'flex', justifyContent: 'center' }}>
+                <svg width="160" height="160" style={{ position: 'absolute', top: 0 }}>
+                  <circle cx="80" cy="80" r="60" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="18" strokeDasharray="188.5 188.5" strokeDashoffset="0" strokeLinecap="round" transform="rotate(-180 80 80)" />
+                  <circle cx="80" cy="80" r="60" fill="none" stroke={c.accent} strokeWidth="18" strokeDasharray="188.5 188.5" strokeDashoffset={188.5 - (188.5 * healthPercent) / 100} strokeLinecap="round" transform="rotate(-180 80 80)" style={{ transition: 'stroke-dashoffset 0.8s ease-in-out' }} />
+                </svg>
+                <div style={{ position: 'absolute', bottom: '4px', textAlign: 'center' }}>
+                  <span style={{ fontSize: '32px', fontWeight: 700, color: '#FFFFFF' }}>{healthPercent}%</span>
+                  <div style={{ fontSize: '12px', fontWeight: 600, color: healthPercent >= 75 ? '#22C55E' : (healthPercent >= 45 ? '#F4E11A' : '#EF4444'), marginTop: '2px' }}>
+                    {healthPercent >= 75 ? 'Safe Vault' : (healthPercent >= 45 ? 'Medium Risk' : 'High Threat')}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Exposed credentials or alerts list */}
+            <div style={s.sectionLabel}>Weak & Vulnerable Passwords</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {vaultItems.filter(i => getPasswordStrengthScore(i.passwordDecrypted) <= 1).length === 0 ? (
+                <div style={{ background: c.card, borderRadius: '20px', padding: '24px', textAlign: 'center', border: `1px solid ${c.cardBorder}` }}>
+                  <span style={{ fontSize: '14px', color: '#22C55E', fontWeight: 600 }}>✓ No security alerts. Great job!</span>
+                </div>
+              ) : (
+                vaultItems.filter(i => getPasswordStrengthScore(i.passwordDecrypted) <= 1).map(item => (
+                  <div 
+                    key={item.id} 
+                    style={{ ...s.itemCard, border: '1px solid rgba(239, 68, 68, 0.2)', background: 'rgba(239, 68, 68, 0.04)' }}
+                    onClick={() => handleEditOpen(item, item.passwordDecrypted)}
+                  >
+                    <div style={{ ...s.favicon, background: 'rgba(239,68,68,0.1)' }}>
+                      <Lock size={16} color="#EF4444" />
+                    </div>
+                    <div style={s.itemInfo}>
+                      <div style={s.itemTitle}>{item.title}</div>
+                      <div style={{ ...s.itemSub, color: '#EF4444' }}>Weak master password hash</div>
+                    </div>
+                    <span style={{ fontSize: '11px', color: '#EF4444', fontWeight: 700 }}>Vulnerable</span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* DEVICES TAB */}
+        {tab === 'devices' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {/* Device chips */}
+            <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '4px' }}>
+              {devicesList.map((dev, idx) => (
+                <div 
+                  key={idx} 
+                  style={{
+                    background: activeDeviceIdx === idx ? c.accent : c.card,
+                    border: `1px solid ${activeDeviceIdx === idx ? c.accent : c.cardBorder}`,
+                    borderRadius: '20px', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '10px',
+                    cursor: 'pointer', flexShrink: 0, transition: 'all 0.2s ease',
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.06)'
+                  }}
+                  onClick={() => setActiveDeviceIdx(idx)}
+                >
+                  <div style={{ color: activeDeviceIdx === idx ? '#1F2228' : '#FFFFFF' }}>{dev.icon}</div>
+                  <div>
+                    <div style={{ fontSize: '13px', fontWeight: 600, color: activeDeviceIdx === idx ? '#1F2228' : '#FFFFFF' }}>{dev.name}</div>
+                    <div style={{ fontSize: '11px', color: activeDeviceIdx === idx ? '#1F2228' : '#C7CBD1' }}>{dev.time}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Map session */}
+            <div style={s.sectionLabel}>Map Session</div>
+            <div style={{
+              background: '#6B7280', borderRadius: '28px', border: `1px solid ${c.cardBorder}`, height: '160px',
+              position: 'relative', overflow: 'hidden', boxShadow: '0 4px 16px rgba(0,0,0,0.1)'
+            }}>
+              {/* Illustrated map representation */}
+              <div style={{
+                position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, opacity: 0.15,
+                backgroundSize: 'cover', backgroundImage: "url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"200\" height=\"100\" viewBox=\"0 0 200 100\"><path fill=\"white\" d=\"M 10 10 L 40 10 L 50 40 L 20 80 Z M 80 20 L 120 30 L 110 60 L 90 70 Z M 140 40 L 180 30 L 190 70 L 150 80 Z\" /></svg>')"
+              }}></div>
+              
+              {/* Map Pins */}
+              <div 
+                style={{
+                  position: 'absolute', top: '40%', left: '35%', width: '24px', height: '24px',
+                  borderRadius: '50%', background: '#F4E11A', border: '3px solid #1F2228',
+                  boxShadow: '0 4px 8px rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: '9px', fontWeight: 700, color: '#1F2228', cursor: 'pointer'
+                }}
+                title="Europe Session Location"
+                onClick={() => setActiveDeviceIdx(0)}
+              >
+                2
+              </div>
+              <div 
+                style={{
+                  position: 'absolute', top: '35%', left: '70%', width: '24px', height: '24px',
+                  borderRadius: '50%', background: '#171819', border: '3px solid #F4E11A',
+                  boxShadow: '0 4px 8px rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: '9px', fontWeight: 700, color: '#FFFFFF', cursor: 'pointer'
+                }}
+                title="North America Session Location"
+                onClick={() => setActiveDeviceIdx(2)}
+              >
+                1
+              </div>
+            </div>
+
+            {/* Bottom device detail sheet */}
+            <div style={{ background: '#FFFFFF', borderRadius: '28px', border: '1px solid rgba(0,0,0,0.06)', padding: '20px', color: '#1F2228', boxShadow: '0 8px 32px rgba(0,0,0,0.1)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                <span style={{ fontSize: '16px', fontWeight: 700 }}>{devicesList[activeDeviceIdx].name}</span>
+                <span style={{
+                  padding: '4px 10px', borderRadius: '999px', fontSize: '11px', fontWeight: 700,
+                  background: devicesList[activeDeviceIdx].trusted ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)',
+                  color: devicesList[activeDeviceIdx].trusted ? '#22C55E' : '#EF4444'
+                }}>
+                  {devicesList[activeDeviceIdx].trusted ? 'Trusted' : 'Untrusted'}
+                </span>
+              </div>
+              <div style={{ borderBottom: '1px dotted rgba(31,34,40,0.12)', margin: '12px 0' }}></div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '13px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#6B7280' }}>IP Address</span>
+                  <span style={{ fontWeight: 600 }}>{devicesList[activeDeviceIdx].ip}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#6B7280' }}>Location</span>
+                  <span style={{ fontWeight: 600 }}>{devicesList[activeDeviceIdx].flag} {devicesList[activeDeviceIdx].location}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#6B7280' }}>Last Active</span>
+                  <span style={{ fontWeight: 600 }}>{devicesList[activeDeviceIdx].time}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* SETTINGS TAB */}
         {tab === 'settings' && (
           <>
             {/* Stats */}
             <div style={s.statsBar}>
               <div style={s.statPill}>
-                <div style={{ ...s.statNumber, color: c.accent }}>{vaultItems.length || '—'}</div>
-                <div style={s.statLabel}>Passwords</div>
+                <div style={{ ...s.statNumber, color: c.accent }}>{vaultItems.length || '0'}</div>
+                <div style={s.statLabel}>Vault</div>
               </div>
               <div style={s.statPill}>
-                <div style={{ ...s.statNumber, color: c.accent2 }}>{bookmarks.length || '—'}</div>
+                <div style={{ ...s.statNumber, color: c.accent }}>{bookmarks.length || '0'}</div>
                 <div style={s.statLabel}>Bookmarks</div>
               </div>
               <div style={s.statPill}>
                 <div style={{ ...s.statNumber, color: '#22c55e' }}>256</div>
-                <div style={s.statLabel}>AES Bits</div>
+                <div style={s.statLabel}>AES</div>
               </div>
             </div>
 
             {/* Appearance */}
-            <div style={s.sectionLabel}>Appearance</div>
+            <div style={s.sectionLabel}>Preferences</div>
             <div style={{ ...s.itemCard, justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={s.itemInfo}>
-                <div style={s.itemTitle}>Theme</div>
-                <div style={s.itemSub}>{theme === 'dark' ? 'Dark Mode' : 'Light Mode'}</div>
+                <div style={s.itemTitle}>Visual Theme</div>
+                <div style={s.itemSub}>{theme === 'dark' ? 'Dark slate' : 'Off-white light'}</div>
               </div>
               <button
-                className="premium-btn"
                 style={{
-                  padding: '6px 12px',
-                  borderRadius: '8px',
-                  background: c.inputBg,
+                  padding: '10px 16px',
+                  borderRadius: '999px',
+                  background: 'rgba(255,255,255,0.06)',
                   border: `1px solid ${c.cardBorder}`,
-                  color: c.textMain,
+                  color: c.text,
                   cursor: 'pointer',
                   fontFamily: 'inherit',
-                  fontSize: '11px',
+                  fontSize: '12px',
                   fontWeight: 600,
                 }}
                 onClick={() => {
@@ -1119,40 +1512,26 @@ export function SidePanel() {
                   localStorage.setItem('vaultsync-theme', n);
                 }}
               >
-                Toggle Theme
+                Switch
               </button>
             </div>
 
-            <div style={s.sectionLabel}>Security</div>
+            <div style={s.sectionLabel}>System Details</div>
             <div style={s.itemCard}>
               <div style={s.itemInfo}>
-                <div style={s.itemTitle}>Encryption</div>
-                <div style={s.itemSub}>AES-256-GCM · PBKDF2 600K</div>
+                <div style={s.itemTitle}>Encryption Mode</div>
+                <div style={s.itemSub}>AES-256-GCM + PBKDF2 (Zero-Knowledge)</div>
               </div>
-              <span style={{ fontSize: '11px', color: '#22c55e', fontWeight: 700 }}>✓ Active</span>
-            </div>
-            <div style={s.itemCard}>
-              <div style={s.itemInfo}>
-                <div style={s.itemTitle}>Zero-Knowledge</div>
-                <div style={s.itemSub}>Server never sees plaintext</div>
-              </div>
-              <span style={{ fontSize: '11px', color: '#3b82f6', fontWeight: 700 }}>✓ Enforced</span>
-            </div>
-            <div style={s.itemCard}>
-              <div style={s.itemInfo}>
-                <div style={s.itemTitle}>Auto-Sync</div>
-                <div style={s.itemSub}>Refreshes every 15 seconds</div>
-              </div>
-              <span style={{ fontSize: '11px', color: '#5ce0d6', fontWeight: 700 }}>✓ Active</span>
+              <span style={{ fontSize: '11px', color: '#22C55E', fontWeight: 700 }}>✓ Verified</span>
             </div>
 
-            <div style={s.sectionLabel}>Session Duration</div>
-            <div style={{ ...s.itemCard, flexDirection: 'column', alignItems: 'stretch', gap: 10 }}>
+            <div style={s.sectionLabel}>Session Expiry</div>
+            <div style={{ ...s.itemCard, flexDirection: 'column', alignItems: 'stretch', gap: 12 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <Clock size={16} color="#a78bfa" />
+                <Clock size={16} color={c.accent} />
                 <div style={s.itemInfo}>
-                  <div style={s.itemTitle}>Auto Sign-Out</div>
-                  <div style={s.itemSub}>How long the vault stays unlocked</div>
+                  <div style={s.itemTitle}>Auto Lock Timeout</div>
+                  <div style={s.itemSub}>Locks vault after background delay</div>
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 6 }}>
@@ -1160,29 +1539,31 @@ export function SidePanel() {
                   { value: '12h', label: '12h' },
                   { value: '24h', label: '24h' },
                   { value: '2d', label: '2 Days' },
-                  { value: 'always', label: 'Always' },
+                  { value: 'always', label: 'Never' },
                 ].map((opt) => (
                   <button
                     key={opt.value}
                     onClick={async () => {
                       setSessionTimeout(opt.value);
-                      await chrome.runtime.sendMessage({
-                        type: 'SET_SESSION_TIMEOUT',
-                        payload: { timeout: opt.value }
-                      });
+                      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+                        await chrome.runtime.sendMessage({
+                          type: 'SET_SESSION_TIMEOUT',
+                          payload: { timeout: opt.value }
+                        });
+                      }
                     }}
                     style={{
                       flex: 1,
-                      padding: '7px 0',
-                      borderRadius: 8,
+                      padding: '8px 0',
+                      borderRadius: '999px',
                       border: sessionTimeout === opt.value
-                        ? '1px solid rgba(167,139,250,0.5)'
-                        : '1px solid rgba(255,255,255,0.08)',
+                        ? `1px solid ${c.accent}`
+                        : `1px solid ${c.cardBorder}`,
                       background: sessionTimeout === opt.value
-                        ? 'rgba(167,139,250,0.15)'
+                        ? c.accentSoft
                         : 'rgba(255,255,255,0.04)',
-                      color: sessionTimeout === opt.value ? '#c4b5fd' : '#8a8f9e',
-                      fontSize: '11px',
+                      color: sessionTimeout === opt.value ? c.accent : c.textSec,
+                      fontSize: '12px',
                       fontWeight: 700,
                       cursor: 'pointer',
                       fontFamily: 'inherit',
@@ -1197,53 +1578,58 @@ export function SidePanel() {
 
             <div style={s.sectionLabel}>Account</div>
             <button
-              style={{ ...s.itemCard, border: '1px solid rgba(239,68,68,0.2)' }}
+              style={{ ...s.itemCard, border: '1px solid rgba(239,68,68,0.2)', background: 'transparent' }}
               onClick={async () => {
-                await chrome.runtime.sendMessage({ type: 'CLEAR_VAULT_KEY' });
+                if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+                  await chrome.runtime.sendMessage({ type: 'CLEAR_VAULT_KEY' });
+                }
                 try {
                   await signOut();
                 } catch (e) {
                   console.error(e);
                 }
-                await chrome.runtime.sendMessage({
-                  type: 'SYNC_SESSION',
-                  payload: { session: null }
-                });
+                if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+                  await chrome.runtime.sendMessage({
+                    type: 'SYNC_SESSION',
+                    payload: { session: null }
+                  });
+                }
                 setIsAuthed(false);
                 setVaultItems([]);
                 setBookmarks([]);
                 setVaultKey(null);
               }}
             >
-              <LogOut size={16} color="#ef4444" />
+              <LogOut size={16} color="#EF4444" />
               <div style={s.itemInfo}>
-                <div style={{ ...s.itemTitle, color: '#ef4444' }}>Sign Out</div>
+                <div style={{ ...s.itemTitle, color: '#EF4444' }}>Lock & Sign Out</div>
               </div>
             </button>
           </>
         )}
       </div>
 
-      {/* Tab Bar */}
+      {/* Floating Bottom Navigation Tab Bar */}
       <div style={s.tabBar}>
         {[
           { id: 'vault' as Tab, icon: <Key size={16} />, label: 'Vault' },
-          { id: 'bookmarks' as Tab, icon: <Bookmark size={16} />, label: 'Bookmarks' },
+          { id: 'generator' as Tab, icon: <Sparkles size={16} />, label: 'Generator' },
+          { id: 'security' as Tab, icon: <Shield size={16} />, label: 'Security' },
+          { id: 'devices' as Tab, icon: <Laptop size={16} />, label: 'Devices' },
           { id: 'settings' as Tab, icon: <Settings size={16} />, label: 'Settings' },
-        ].map((t) => (
-          <button
-            key={t.id}
-            style={{
-              ...s.tab,
-              color: tab === t.id ? '#5ce0d6' : '#4a5068',
-              background: tab === t.id ? 'rgba(92,224,214,0.06)' : 'transparent',
-            }}
-            onClick={() => setTab(t.id)}
-          >
-            {t.icon}
-            {t.label}
-          </button>
-        ))}
+        ].map((t) => {
+          const isActive = tab === t.id;
+          return (
+            <button
+              key={t.id}
+              style={isActive ? s.tabActive : s.tab}
+              onClick={() => setTab(t.id)}
+            >
+              {t.icon}
+              {t.label}
+            </button>
+          );
+        })}
       </div>
 
       {/* Folder Modals */}
@@ -1330,45 +1716,45 @@ export function SidePanel() {
         </div>
       )}
 
-      {/* View/Edit Card Modal */}
+      {/* Floating Panel detail sheet */}
       {editingItem && (
-        <div style={mStyles.overlay} className="modal-overlay">
-          <div style={{ ...mStyles.modal, maxWidth: '340px' }} className="modal-content">
+        <div style={mStyles.overlay}>
+          <div style={{ ...mStyles.modal, maxWidth: '340px', background: '#FFFFFF', color: '#1F2228' }}>
             <div style={mStyles.header}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <div style={{
-                  width: 32, height: 32, borderRadius: 8,
-                  background: 'rgba(255,255,255,0.06)',
+                  width: 32, height: 32, borderRadius: '50%',
+                  background: 'rgba(31,34,40,0.06)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   overflow: 'hidden'
                 }}>
                   {editForm.domain && getFaviconUrl(editForm.domain) ? (
                     <img src={getFaviconUrl(editForm.domain)} width={20} height={20} alt="" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
                   ) : (
-                    <Key size={16} color={c.accent} />
+                    <Key size={16} color="#1F2228" />
                   )}
                 </div>
-                <span style={{ ...mStyles.title, fontSize: '15px', fontWeight: 700 }}>
-                  {isEditing ? 'Edit Item' : 'Item Details'}
+                <span style={{ ...mStyles.title, fontSize: '16px', fontWeight: 700, color: '#1F2228' }}>
+                  {isEditing ? 'Edit Item' : 'Credentials'}
                 </span>
               </div>
-              <button style={mStyles.closeBtn} onClick={() => { setEditingItem(null); setIsEditing(false); }}><X size={18} /></button>
+              <button style={{ ...mStyles.closeBtn, background: 'rgba(0,0,0,0.06)', color: '#1F2228' }} onClick={() => { setEditingItem(null); setIsEditing(false); }}><X size={18} /></button>
             </div>
             
             <div style={{ ...mStyles.form, marginTop: 8 }}>
               {/* Title Field */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <span style={{ fontSize: '10px', color: c.textSub, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Title</span>
+                <span style={{ fontSize: '11px', color: '#6B7280', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Title</span>
                 <input
                   style={{
                     ...s.authInput,
-                    background: isEditing ? c.inputBg : 'transparent',
-                    border: isEditing ? `1px solid ${c.inputBorder}` : 'none',
+                    background: isEditing ? 'rgba(0,0,0,0.03)' : 'transparent',
+                    border: isEditing ? '1px solid rgba(0,0,0,0.12)' : 'none',
                     padding: isEditing ? '0 12px' : '0 4px',
                     height: isEditing ? 38 : 28,
                     fontSize: '13px',
                     fontWeight: isEditing ? 500 : 600,
-                    color: c.textMain
+                    color: '#1F2228'
                   }}
                   value={editForm.title}
                   onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
@@ -1378,19 +1764,19 @@ export function SidePanel() {
 
               {/* Username Field */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <span style={{ fontSize: '10px', color: c.textSub, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Username / Email</span>
+                <span style={{ fontSize: '11px', color: '#6B7280', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Username / Email</span>
                 <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
                   <input
                     style={{
                       ...s.authInput,
-                      background: isEditing ? c.inputBg : 'transparent',
-                      border: isEditing ? `1px solid ${c.inputBorder}` : 'none',
+                      background: isEditing ? 'rgba(0,0,0,0.03)' : 'transparent',
+                      border: isEditing ? '1px solid rgba(0,0,0,0.12)' : 'none',
                       padding: isEditing ? '0 12px' : '0 4px',
-                      paddingRight: isEditing ? 12 : 40,
+                      paddingRight: isEditing ? 12 : 60,
                       height: isEditing ? 38 : 28,
                       fontSize: '13px',
                       width: '100%',
-                      color: c.textMain
+                      color: '#1F2228'
                     }}
                     value={editForm.username}
                     onChange={(e) => setEditForm({ ...editForm, username: e.target.value })}
@@ -1398,11 +1784,10 @@ export function SidePanel() {
                   />
                   {!isEditing && (
                     <button
-                      className="premium-btn"
                       style={{
-                        position: 'absolute', right: 4, background: 'rgba(255,255,255,0.06)',
-                        border: 'none', borderRadius: '6px', color: c.accent, padding: '4px 8px',
-                        fontSize: '10px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit'
+                        position: 'absolute', right: 4, background: 'rgba(31,34,40,0.06)',
+                        border: 'none', borderRadius: '999px', color: '#1F2228', padding: '4px 10px',
+                        fontSize: '11px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit'
                       }}
                       onClick={() => handleCopy(editForm.username, 'usr')}
                     >
@@ -1414,44 +1799,42 @@ export function SidePanel() {
 
               {/* Password Field */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <span style={{ fontSize: '10px', color: c.textSub, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Password</span>
+                <span style={{ fontSize: '11px', color: '#6B7280', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Password</span>
                 <div style={{ position: 'relative', display: 'flex', alignItems: 'center', width: '100%' }}>
                   <input
                     style={{
                       ...s.authInput,
-                      background: isEditing ? c.inputBg : 'transparent',
-                      border: isEditing ? `1px solid ${c.inputBorder}` : 'none',
+                      background: isEditing ? 'rgba(0,0,0,0.03)' : 'transparent',
+                      border: isEditing ? '1px solid rgba(0,0,0,0.12)' : 'none',
                       padding: isEditing ? '0 12px' : '0 4px',
                       paddingRight: isEditing ? 40 : 76,
                       height: isEditing ? 38 : 28,
                       fontSize: '13px',
                       fontFamily: (!isEditing && !isPasswordVisible) ? 'monospace' : 'inherit',
                       width: '100%',
-                      color: c.textMain
+                      color: '#1F2228'
                     }}
                     type={(isEditing || isPasswordVisible) ? 'text' : 'password'}
                     value={editForm.password}
                     onChange={(e) => setEditForm({ ...editForm, password: e.target.value })}
                     readOnly={!isEditing}
                   />
-                  <div style={{ position: 'absolute', right: 4, display: 'flex', gap: '4px' }}>
+                  <div style={{ position: 'absolute', right: 4, display: 'flex', gap: '4px', alignItems: 'center' }}>
                     <button
                       style={{
                         background: 'none', border: 'none', cursor: 'pointer', padding: 4,
-                        color: c.textSub, display: 'flex', borderRadius: 4
+                        color: '#6B7280', display: 'flex', borderRadius: 4
                       }}
                       onClick={() => setIsPasswordVisible(!isPasswordVisible)}
-                      title={isPasswordVisible ? 'Hide Password' : 'Show Password'}
                     >
                       {isPasswordVisible ? <EyeOff size={14} /> : <Eye size={14} />}
                     </button>
                     {!isEditing && (
                       <button
-                        className="premium-btn"
                         style={{
-                          background: 'rgba(255,255,255,0.06)',
-                          border: 'none', borderRadius: '6px', color: c.accent, padding: '4px 8px',
-                          fontSize: '10px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit'
+                          background: 'rgba(31,34,40,0.06)',
+                          border: 'none', borderRadius: '999px', color: '#1F2228', padding: '4px 10px',
+                          fontSize: '11px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit'
                         }}
                         onClick={() => handleCopy(editForm.password, 'pwd')}
                       >
@@ -1464,16 +1847,16 @@ export function SidePanel() {
 
               {/* Domain Field */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <span style={{ fontSize: '10px', color: c.textSub, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Domain</span>
+                <span style={{ fontSize: '11px', color: '#6B7280', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Domain</span>
                 <input
                   style={{
                     ...s.authInput,
-                    background: isEditing ? c.inputBg : 'transparent',
-                    border: isEditing ? `1px solid ${c.inputBorder}` : 'none',
+                    background: isEditing ? 'rgba(0,0,0,0.03)' : 'transparent',
+                    border: isEditing ? '1px solid rgba(0,0,0,0.12)' : 'none',
                     padding: isEditing ? '0 12px' : '0 4px',
                     height: isEditing ? 38 : 28,
                     fontSize: '13px',
-                    color: c.textMain
+                    color: '#1F2228'
                   }}
                   value={editForm.domain}
                   onChange={(e) => setEditForm({ ...editForm, domain: e.target.value })}
@@ -1483,17 +1866,17 @@ export function SidePanel() {
 
               {/* Notes Field */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <span style={{ fontSize: '10px', color: c.textSub, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Notes</span>
+                <span style={{ fontSize: '11px', color: '#6B7280', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Notes</span>
                 <textarea
                   style={{
                     ...s.authInput,
-                    background: isEditing ? c.inputBg : 'transparent',
-                    border: isEditing ? `1px solid ${c.inputBorder}` : 'none',
+                    background: isEditing ? 'rgba(0,0,0,0.03)' : 'transparent',
+                    border: isEditing ? '1px solid rgba(0,0,0,0.12)' : 'none',
                     padding: isEditing ? '8px 12px' : '4px 4px',
                     height: isEditing ? 70 : 'auto',
                     minHeight: isEditing ? 70 : 28,
                     fontSize: '13px',
-                    color: c.textMain,
+                    color: '#1F2228',
                     resize: isEditing ? 'vertical' : 'none'
                   }}
                   value={editForm.notes}
@@ -1510,7 +1893,6 @@ export function SidePanel() {
                   <>
                     <button
                       type="button"
-                      className="premium-btn"
                       style={mStyles.cancelBtn}
                       onClick={() => { setEditingItem(null); setIsEditing(false); }}
                     >
@@ -1518,21 +1900,19 @@ export function SidePanel() {
                     </button>
                     <button
                       type="button"
-                      className="premium-btn"
                       style={{
                         ...mStyles.saveBtn,
                         display: 'flex', alignItems: 'center', gap: '6px'
                       }}
                       onClick={() => setIsEditing(true)}
                     >
-                      <Edit3 size={13} /> Edit
+                      <Edit3 size={14} /> Edit
                     </button>
                   </>
                 ) : (
                   <>
                     <button
                       type="button"
-                      className="premium-btn"
                       style={mStyles.cancelBtn}
                       onClick={() => setIsEditing(false)}
                     >
@@ -1540,12 +1920,11 @@ export function SidePanel() {
                     </button>
                     <button
                       type="button"
-                      className="premium-btn"
                       style={mStyles.saveBtn}
                       onClick={handleEditSave}
                       disabled={loading}
                     >
-                      {loading ? 'Saving...' : 'Save Changes'}
+                      {loading ? 'Saving...' : 'Save'}
                     </button>
                   </>
                 )}

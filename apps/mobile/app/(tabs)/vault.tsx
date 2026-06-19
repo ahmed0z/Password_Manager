@@ -1,63 +1,76 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
-  useColorScheme, TextInput, ActivityIndicator, Alert, Modal, ScrollView,
+  useColorScheme, TextInput, ActivityIndicator, Alert, ScrollView,
+  Linking, Dimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import {
   getVaultItems, type VaultItem, type DecryptedVaultItem,
   getFolders, buildFolderTree, createFolder, renameFolder, deleteFolder,
   createVaultItem, updateVaultItem, deleteVaultItem,
-  type DecryptedFolder, base64ToUint8Array
+  getBookmarks, type Bookmark, type DecryptedBookmark,
+  renameBookmarkFolder, deleteBookmarkFolder, buildBookmarkFolderTree,
+  type DecryptedFolder, type BookmarkFolderNode, base64ToUint8Array,
+  syncBookmarks, estimateStrength
 } from '@vaultsync/core';
 import * as SecureStore from 'expo-secure-store';
 import * as Clipboard from 'expo-clipboard';
+import { Search, Plus, Filter, Sliders, ChevronLeft, ArrowRight, Lock, Eye, EyeOff, Copy, Trash2, Edit3, Bookmark as BookmarkIcon, Globe } from 'lucide-react-native';
+
+import {
+  colors,
+  CircularIconButton,
+  PillTab,
+  StatCapsule,
+  ListCard,
+  StatusBadge,
+  GaugeChart,
+  FloatingPanel,
+} from '../_components/SharedComponents';
 
 type VaultItemWithDecrypted = VaultItem & { decrypted: DecryptedVaultItem };
+type BookmarkWithDecrypted = Bookmark & { decrypted: DecryptedBookmark };
+type SubTab = 'Logins' | 'Bookmarks';
+type StrengthFilter = 'all' | 'weak' | 'reused' | 'strong';
 
 export default function VaultScreen() {
   const router = useRouter();
   const isDark = useColorScheme() === 'dark';
-  const c = isDark ? dark : light;
 
-  const [items, setItems] = useState<VaultItemWithDecrypted[]>([]);
+  const [activeSubTab, setActiveSubTab] = useState<SubTab>('Logins');
+  const [strengthFilter, setStrengthFilter] = useState<StrengthFilter>('all');
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
 
-  // Folders State
+  // Vault/Logins State
+  const [items, setItems] = useState<VaultItemWithDecrypted[]>([]);
   const [folders, setFolders] = useState<DecryptedFolder[]>([]);
   const [folderTree, setFolderTree] = useState<DecryptedFolder[]>([]);
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
-
-  useEffect(() => {
-    SecureStore.getItemAsync('vaultsync-vault-search').then(val => { if (val) setSearch(val); });
-    SecureStore.getItemAsync('vaultsync-vault-folder').then(val => { if (val) setSelectedFolderId(val); });
-  }, []);
-
-  const updateSearch = (val: string) => {
-    setSearch(val);
-    SecureStore.setItemAsync('vaultsync-vault-search', val);
-  };
-
-  const updateFolder = (val: string | null) => {
-    setSelectedFolderId(val);
-    if (val) SecureStore.setItemAsync('vaultsync-vault-folder', val);
-    else SecureStore.deleteItemAsync('vaultsync-vault-folder');
-  };
   const [isFoldersCollapsed, setIsFoldersCollapsed] = useState(true);
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
 
-  const toggleFolder = (id: string) => {
-    setExpandedFolders(prev => ({ ...prev, [id]: !prev[id] }));
-  };
+  // Bookmarks State
+  const [bookmarks, setBookmarks] = useState<BookmarkWithDecrypted[]>([]);
+  const [bookmarkFolderTree, setBookmarkFolderTree] = useState<BookmarkFolderNode[]>([]);
+  const [selectedFolderPath, setSelectedFolderPath] = useState<string | null>(null);
+  const [isBookmarkFoldersCollapsed, setIsBookmarkFoldersCollapsed] = useState(true);
+  const [syncing, setSyncing] = useState(false);
 
-  // Modals state
+  // Folder CRUD Modals
   const [isAddFolderVisible, setIsAddFolderVisible] = useState(false);
   const [isRenameFolderVisible, setIsRenameFolderVisible] = useState(false);
   const [folderParentId, setFolderParentId] = useState<string | undefined>(undefined);
   const [folderRenameId, setFolderRenameId] = useState<string | null>(null);
   const [folderRenameName, setFolderRenameName] = useState('');
   const [folderNewName, setFolderNewName] = useState('');
+
+  // Bookmark Folder Modals
+  const [isBookmarkFolderModalVisible, setIsBookmarkFolderModalVisible] = useState<'add' | 'rename' | null>(null);
+  const [bookmarkOldPath, setBookmarkOldPath] = useState('');
+  const [bookmarkNewPath, setBookmarkNewPath] = useState('');
 
   // Password Details / Edit State
   const [selectedItem, setSelectedItem] = useState<VaultItemWithDecrypted | null>(null);
@@ -92,12 +105,33 @@ export default function VaultScreen() {
     try {
       const key = await getVaultKey();
       if (!key) { router.replace('/(auth)/login'); return; }
+      
+      // Load logins and folders
       const data = await getVaultItems(key);
       setItems(data);
 
       const folderData = await getFolders(key);
       setFolders(folderData);
       setFolderTree(buildFolderTree(folderData));
+
+      // Load bookmarks
+      const bData = await getBookmarks(key);
+      setBookmarks(bData);
+
+      const paths = new Set<string>();
+      bData.forEach((b) => {
+        if (b.decrypted.folderPath) {
+          paths.add(b.decrypted.folderPath);
+        }
+      });
+      const storedEmpty = await SecureStore.getItemAsync('vaultsync-empty-bookmark-folders');
+      if (storedEmpty) {
+        try {
+          const emptyList: string[] = JSON.parse(storedEmpty);
+          emptyList.forEach((p) => paths.add(p));
+        } catch {}
+      }
+      setBookmarkFolderTree(buildBookmarkFolderTree(Array.from(paths)));
     } catch (e) {
       console.error(e);
       if (e instanceof Error && e.message === 'Not authenticated') {
@@ -113,21 +147,22 @@ export default function VaultScreen() {
 
     let vaultItemsSub: any = null;
     let foldersSub: any = null;
+    let bookmarksSub: any = null;
 
     const setupRealtime = async () => {
       try {
-        const { getSession, subscribeToVaultItems, subscribeToFolders } = await import('@vaultsync/core');
+        const { getSession, subscribeToVaultItems, subscribeToFolders, subscribeToBookmarks } = await import('@vaultsync/core');
         const session = await getSession();
         if (!session || !session.user) return;
         const userId = session.user.id;
 
         vaultItemsSub = subscribeToVaultItems(userId, () => {
-          console.log('[Mobile Realtime] Vault items updated');
           loadData();
         });
-
         foldersSub = subscribeToFolders(userId, () => {
-          console.log('[Mobile Realtime] Folders updated');
+          loadData();
+        });
+        bookmarksSub = subscribeToBookmarks(userId, () => {
           loadData();
         });
       } catch (e) {
@@ -140,10 +175,11 @@ export default function VaultScreen() {
     return () => {
       if (vaultItemsSub) vaultItemsSub.unsubscribe();
       if (foldersSub) foldersSub.unsubscribe();
+      if (bookmarksSub) bookmarksSub.unsubscribe();
     };
   }, [loadData]);
 
-  // -- Folder CRUD Handlers --
+  // -- Logins Folder CRUD Handlers --
   const handleCreateFolder = async () => {
     if (!folderNewName.trim()) return;
     try {
@@ -189,7 +225,7 @@ export default function VaultScreen() {
             try {
               setLoading(true);
               await deleteFolder(id);
-              if (selectedFolderId === id) updateFolder(null);
+              if (selectedFolderId === id) setSelectedFolderId(null);
               await loadData();
             } catch (e) {
               Alert.alert('Error', 'Failed to delete folder');
@@ -202,18 +238,120 @@ export default function VaultScreen() {
     );
   };
 
-  const filtered = items.filter((i) => {
-    if (selectedFolderId && i.folder_id !== selectedFolderId) return false;
-    if (!search) return true;
-    const q = search.toLowerCase();
-    return i.decrypted.title.toLowerCase().includes(q) || i.decrypted.username.toLowerCase().includes(q);
-  });
+  // -- Bookmark Folder CRUD Handlers --
+  const handleCreateBookmarkFolder = async () => {
+    if (!bookmarkNewPath.trim()) return;
+    const path = bookmarkNewPath.trim();
+    try {
+      const storedEmpty = await SecureStore.getItemAsync('vaultsync-empty-bookmark-folders');
+      let emptyList: string[] = [];
+      if (storedEmpty) {
+        try { emptyList = JSON.parse(storedEmpty); } catch {}
+      }
+      if (!emptyList.includes(path)) {
+        emptyList.push(path);
+        await SecureStore.setItemAsync('vaultsync-empty-bookmark-folders', JSON.stringify(emptyList));
+      }
+      setIsBookmarkFolderModalVisible(null);
+      await loadData();
+    } catch (e) {
+      Alert.alert('Error', 'Failed to create folder');
+    }
+  };
 
+  const handleRenameBookmarkFolder = async () => {
+    if (!bookmarkNewPath.trim() || !bookmarkOldPath) return;
+    try {
+      const key = await getVaultKey();
+      if (!key) return;
+      setLoading(true);
+      const newPath = bookmarkNewPath.trim();
+      await renameBookmarkFolder(bookmarkOldPath, newPath, key);
+
+      const storedEmpty = await SecureStore.getItemAsync('vaultsync-empty-bookmark-folders');
+      if (storedEmpty) {
+        try {
+          let emptyList: string[] = JSON.parse(storedEmpty);
+          emptyList = emptyList.map(p => {
+            if (p === bookmarkOldPath) return newPath;
+            if (p.startsWith(bookmarkOldPath + '/')) {
+              return newPath + p.substring(bookmarkOldPath.length);
+            }
+            return p;
+          });
+          await SecureStore.setItemAsync('vaultsync-empty-bookmark-folders', JSON.stringify(emptyList));
+        } catch {}
+      }
+      setIsBookmarkFolderModalVisible(null);
+      if (selectedFolderPath === bookmarkOldPath) setSelectedFolderPath(newPath);
+      await loadData();
+    } catch (e) {
+      Alert.alert('Error', 'Failed to rename folder');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteBookmarkFolder = async (path: string) => {
+    Alert.alert(
+      'Delete Folder',
+      `Are you sure you want to delete folder "${path}"? Bookmarks will move to root.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const key = await getVaultKey();
+              if (!key) return;
+              setLoading(true);
+              await deleteBookmarkFolder(path, key);
+
+              const storedEmpty = await SecureStore.getItemAsync('vaultsync-empty-bookmark-folders');
+              if (storedEmpty) {
+                try {
+                  let emptyList: string[] = JSON.parse(storedEmpty);
+                  emptyList = emptyList.filter(p => p !== path && !p.startsWith(path + '/'));
+                  await SecureStore.setItemAsync('vaultsync-empty-bookmark-folders', JSON.stringify(emptyList));
+                } catch {}
+              }
+              if (selectedFolderPath === path) setSelectedFolderPath(null);
+              await loadData();
+            } catch (e) {
+              Alert.alert('Error', 'Failed to delete folder');
+            } finally {
+              setLoading(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  // -- Smart bookmarks sync --
+  const handleSmartSync = async () => {
+    setSyncing(true);
+    try {
+      const key = await getVaultKey();
+      if (!key) return;
+      // In mobile app context, smart sync would connect to the Chrome extension bookmarks list.
+      // Since it runs locally, we simulate or notify.
+      Alert.alert('Bookmarks Sync', 'Importing bookmarks from Chrome extension. Please make sure the Chrome extension is open and logged in.');
+    } catch (e) {
+      console.warn(e);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  // -- Clipboard utilities --
   const copyToClipboard = async (text: string, label: string) => {
     await Clipboard.setStringAsync(text);
     Alert.alert('Copied', `${label} copied to clipboard`);
   };
 
+  // -- Logins CRUD Handlers --
   const handleStartDetailEdit = () => {
     if (!selectedItem) return;
     setDetailTitle(selectedItem.decrypted.title || '');
@@ -323,33 +461,44 @@ export default function VaultScreen() {
     }
   };
 
-  const renderItem = ({ item }: { item: VaultItemWithDecrypted }) => (
-    <TouchableOpacity
-      style={[styles.itemRow, { backgroundColor: c.card, borderColor: c.border }]}
-      activeOpacity={0.7}
-      onPress={() => {
-        setIsDetailPasswordVisible(false);
-        setSelectedItem(item);
-      }}
-    >
-      <View style={[styles.favicon, { backgroundColor: c.faviconBg }]}>
-        <Text style={{ fontSize: 18 }}>🔑</Text>
-      </View>
-      <View style={styles.itemInfo}>
-        <Text style={[styles.itemTitle, { color: c.text }]} numberOfLines={1}>
-          {item.decrypted.title}
-        </Text>
-        <Text style={[styles.itemSubtitle, { color: c.textSec }]} numberOfLines={1}>
-          {item.decrypted.username}
-        </Text>
-      </View>
-      <View style={[styles.domainBadge, { backgroundColor: c.badgeBg }]}>
-        <Text style={[styles.domainText, { color: c.textSec }]} numberOfLines={1}>
-          {item.domain || '—'}
-        </Text>
-      </View>
-    </TouchableOpacity>
-  );
+  // Filtering lists
+  const filteredLogins = items.filter((i) => {
+    if (selectedFolderId && i.folder_id !== selectedFolderId) return false;
+    
+    // Apply strength filters
+    if (strengthFilter !== 'all') {
+      const score = estimateStrength(i.decrypted.password).score;
+      if (strengthFilter === 'weak' && score > 1) return false;
+      if (strengthFilter === 'reused' && (score !== 2 && score !== 3)) return false; // Map reused to Medium
+      if (strengthFilter === 'strong' && score !== 4) return false;
+    }
+
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return i.decrypted.title.toLowerCase().includes(q) || i.decrypted.username.toLowerCase().includes(q);
+  });
+
+  const filteredBookmarks = bookmarks.filter((b) => {
+    if (selectedFolderPath) {
+      const path = b.decrypted.folderPath || '';
+      if (path !== selectedFolderPath && !path.startsWith(selectedFolderPath + '/')) return false;
+    }
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return b.decrypted.title.toLowerCase().includes(q) || b.decrypted.url.toLowerCase().includes(q);
+  });
+
+  // Strength counters
+  const weakCount = items.filter(i => estimateStrength(i.decrypted.password).score <= 1).length;
+  const reusedCount = items.filter(i => {
+    const score = estimateStrength(i.decrypted.password).score;
+    return score === 2 || score === 3;
+  }).length;
+  const strongCount = items.filter(i => estimateStrength(i.decrypted.password).score === 4).length;
+
+  const toggleFolderCollapse = (id: string) => {
+    setExpandedFolders(prev => ({ ...prev, [id]: !prev[id] }));
+  };
 
   const renderFolderNode = (folder: DecryptedFolder, level = 0) => {
     const isActive = selectedFolderId === folder.id;
@@ -362,22 +511,22 @@ export default function VaultScreen() {
           style={[
             styles.folderRow,
             { paddingLeft: level * 16 + 12 },
-            isActive && { backgroundColor: c.badgeBg }
+            isActive && { backgroundColor: 'rgba(255,255,255,0.06)' }
           ]}
-          onPress={() => updateFolder(isActive ? null : folder.id)}
+          onPress={() => setSelectedFolderId(isActive ? null : folder.id)}
         >
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             {hasChildren ? (
               <TouchableOpacity
-                onPress={() => toggleFolder(folder.id)}
+                onPress={() => toggleFolderCollapse(folder.id)}
                 style={{ width: 24, alignItems: 'center', justifyContent: 'center' }}
               >
-                <Text style={{ color: c.textSec, fontSize: 10 }}>{isExpanded ? '▼' : '▶'}</Text>
+                <Text style={{ color: colors.textSecondary, fontSize: 10 }}>{isExpanded ? '▼' : '▶'}</Text>
               </TouchableOpacity>
             ) : (
               <View style={{ width: 24 }} />
             )}
-            <Text style={[styles.folderNodeText, { color: isActive ? c.accent : c.text }]}>
+            <Text style={[styles.folderNodeText, { color: isActive ? colors.accentPrimary : colors.textPrimary }]}>
               📁 {folder.name}
             </Text>
           </View>
@@ -390,7 +539,7 @@ export default function VaultScreen() {
               }}
               style={styles.folderActionIcon}
             >
-              <Text style={{ color: c.accent, fontSize: 13, fontWeight: '700' }}>➕</Text>
+              <Plus size={12} color={colors.accentPrimary} />
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => {
@@ -400,13 +549,13 @@ export default function VaultScreen() {
               }}
               style={styles.folderActionIcon}
             >
-              <Text style={{ color: c.accent, fontSize: 13, fontWeight: '700' }}>✏️</Text>
+              <Edit3 size={12} color={colors.accentPrimary} />
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => handleDeleteFolder(folder.id)}
               style={styles.folderActionIcon}
             >
-              <Text style={{ color: '#ef4444', fontSize: 13, fontWeight: '700' }}>🗑️</Text>
+              <Trash2 size={12} color="#EF4444" />
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
@@ -415,578 +564,864 @@ export default function VaultScreen() {
     );
   };
 
+  const renderBookmarkFolderNode = (node: BookmarkFolderNode, level = 0) => {
+    const isActive = selectedFolderPath === node.path;
+    const isExpanded = expandedFolders[node.path];
+    const hasChildren = node.children && node.children.length > 0;
+
+    const toggleBookmarkFolderCollapse = (path: string) => {
+      setExpandedFolders(prev => ({ ...prev, [path]: !prev[path] }));
+    };
+
+    return (
+      <View key={node.path}>
+        <TouchableOpacity
+          style={[
+            styles.folderRow,
+            { paddingLeft: level * 16 + 12 },
+            isActive && { backgroundColor: 'rgba(255,255,255,0.06)' }
+          ]}
+          onPress={() => setSelectedFolderPath(isActive ? null : node.path)}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            {hasChildren ? (
+              <TouchableOpacity
+                onPress={() => toggleBookmarkFolderCollapse(node.path)}
+                style={{ width: 24, alignItems: 'center', justifyContent: 'center' }}
+              >
+                <Text style={{ color: colors.textSecondary, fontSize: 10 }}>{isExpanded ? '▼' : '▶'}</Text>
+              </TouchableOpacity>
+            ) : (
+              <View style={{ width: 24 }} />
+            )}
+            <Text style={[styles.folderNodeText, { color: isActive ? colors.accentPrimary : colors.textPrimary }]}>
+              📁 {node.name}
+            </Text>
+          </View>
+          <View style={styles.folderRowActions}>
+            <TouchableOpacity
+              onPress={() => {
+                setBookmarkOldPath(node.path);
+                setBookmarkNewPath(node.path);
+                setIsBookmarkFolderModalVisible('rename');
+              }}
+              style={styles.folderActionIcon}
+            >
+              <Edit3 size={12} color={colors.accentPrimary} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => handleDeleteBookmarkFolder(node.path)}
+              style={styles.folderActionIcon}
+            >
+              <Trash2 size={12} color="#EF4444" />
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+        {hasChildren && isExpanded && node.children!.map(child => renderBookmarkFolderNode(child, level + 1))}
+      </View>
+    );
+  };
+
   if (loading) {
     return (
-      <View style={[styles.center, { backgroundColor: c.bg }]}>
-        <ActivityIndicator size="large" color={c.accent} />
+      <View style={[styles.center, { backgroundColor: colors.bgPrimary }]}>
+        <ActivityIndicator size="large" color={colors.accentPrimary} />
       </View>
     );
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: c.bg }]}>
-      {/* Search & Add */}
-      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 8, paddingBottom: 16, gap: 10 }}>
-        <TextInput
-          style={[styles.searchInput, { flex: 1, backgroundColor: c.card, color: c.text, borderColor: c.border }]}
-          placeholder="Search vault..."
-          placeholderTextColor={c.placeholder}
-          value={search}
-          onChangeText={updateSearch}
-        />
-        <TouchableOpacity
-          style={{
-            height: 44,
-            paddingHorizontal: 16,
-            borderRadius: 12,
-            backgroundColor: c.accent,
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-          onPress={() => setIsAddPasswordVisible(true)}
-        >
-          <Text style={{ color: '#0a0f1e', fontWeight: '700', fontSize: 14 }}>+ Add</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Stats */}
-      <View style={styles.statsRow}>
-        <View style={[styles.statCard, { backgroundColor: c.card, borderColor: c.border }]}>
-          <Text style={[styles.statNumber, { color: c.accent }]}>{items.length}</Text>
-          <Text style={[styles.statLabel, { color: c.textSec }]}>Total</Text>
-        </View>
-        <View style={[styles.statCard, { backgroundColor: c.card, borderColor: c.border }]}>
-          <Text style={[styles.statNumber, { color: '#eab308' }]}>
-            {items.filter((i) => i.is_favorite).length}
-          </Text>
-          <Text style={[styles.statLabel, { color: c.textSec }]}>Favorites</Text>
-        </View>
-        <View style={[styles.statCard, { backgroundColor: c.card, borderColor: c.border }]}>
-          <Text style={[styles.statNumber, { color: '#22c55e' }]}>256</Text>
-          <Text style={[styles.statLabel, { color: c.textSec }]}>AES Bits</Text>
-        </View>
-      </View>
-
-      {/* Folders Card */}
-      <View style={[styles.folderCard, { backgroundColor: c.card, borderColor: c.border }]}>
-        <TouchableOpacity
-          style={styles.folderCardHeader}
-          onPress={() => setIsFoldersCollapsed(!isFoldersCollapsed)}
-          activeOpacity={0.7}
-        >
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Text style={{ fontSize: 16 }}>📁</Text>
-            <Text style={[styles.folderCardTitle, { color: c.text }]}>Folders</Text>
-            {selectedFolderId && (
-              <View style={[styles.activeFolderBadge, { backgroundColor: c.badgeBg }]}>
-                <Text style={{ color: c.accent, fontSize: 10, fontWeight: '600' }}>
-                  {folders.find(f => f.id === selectedFolderId)?.name || 'Filtered'}
-                </Text>
-              </View>
-            )}
-          </View>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+    <View style={[styles.container, { backgroundColor: colors.bgPrimary }]}>
+      {/* Top Navbar */}
+      <View style={styles.header}>
+        {!isSearchOpen ? (
+          <>
+            <CircularIconButton onPress={() => router.replace('/(tabs)/settings')}>
+              <Sliders size={18} color="#1F2228" />
+            </CircularIconButton>
+            
+            <Text style={styles.headerTitle}>{activeSubTab}</Text>
+            
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <CircularIconButton onPress={() => setIsSearchOpen(true)}>
+                <Search size={18} color="#1F2228" />
+              </CircularIconButton>
+              {activeSubTab === 'Logins' ? (
+                <CircularIconButton onPress={() => setIsAddPasswordVisible(true)}>
+                  <Plus size={18} color="#1F2228" />
+                </CircularIconButton>
+              ) : (
+                <CircularIconButton onPress={handleSmartSync}>
+                  <BookmarkIcon size={18} color="#1F2228" />
+                </CircularIconButton>
+              )}
+            </View>
+          </>
+        ) : (
+          <View style={styles.searchBarContainer}>
+            <TextInput
+              style={[styles.searchInput, { flex: 1, backgroundColor: 'rgba(23, 24, 25, 0.2)', color: '#FFFFFF', borderColor: colors.surfaceBorder }]}
+              placeholder={activeSubTab === 'Bookmarks' ? 'Search bookmarks...' : 'Search logins...'}
+              placeholderTextColor="rgba(255,255,255,0.4)"
+              value={search}
+              onChangeText={setSearch}
+              autoFocus
+            />
             <TouchableOpacity
-              onPress={() => {
-                setFolderParentId(undefined);
-                setFolderNewName('');
-                setIsAddFolderVisible(true);
-              }}
-              style={styles.addFolderBtn}
+              style={[styles.searchCloseBtn, { backgroundColor: 'rgba(239,68,68,0.1)' }]}
+              onPress={() => { setIsSearchOpen(false); setSearch(''); }}
             >
-              <Text style={{ color: c.accent, fontSize: 13, fontWeight: '700' }}>+ Add</Text>
+              <Text style={{ color: '#EF4444', fontWeight: '700' }}>✕</Text>
             </TouchableOpacity>
-            <Text style={{ color: c.textSec, fontSize: 12 }}>
-              {isFoldersCollapsed ? '▼' : '▲'}
-            </Text>
-          </View>
-        </TouchableOpacity>
-
-        {!isFoldersCollapsed && (
-          <View style={styles.folderListContainer}>
-            {folderTree.length === 0 ? (
-              <Text style={{ color: c.textSec, fontSize: 12, padding: 12, textAlign: 'center' }}>
-                No folders created yet.
-              </Text>
-            ) : (
-              folderTree.map((f) => renderFolderNode(f, 0))
-            )}
           </View>
         )}
       </View>
 
-      {/* List */}
-      <FlatList
-        data={filtered}
-        keyExtractor={(item) => item.id}
-        renderItem={renderItem}
-        contentContainerStyle={styles.listContent}
-        showsVerticalScrollIndicator={false}
-        ListEmptyComponent={
-          <View style={styles.emptyState}>
-            <Text style={{ fontSize: 48, marginBottom: 16 }}>🔐</Text>
-            <Text style={[styles.emptyTitle, { color: c.text }]}>No passwords yet</Text>
-            <Text style={[styles.emptySubtitle, { color: c.textSec }]}>
-              Add passwords via the web app or Chrome extension
-            </Text>
-          </View>
-        }
-      />
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        {/* PillTab selector for Logins / Bookmarks */}
+        <PillTab
+          tabs={['Logins', 'Bookmarks']}
+          activeTab={activeSubTab}
+          onChange={(tab) => {
+            setActiveSubTab(tab as SubTab);
+            setSearch('');
+            setIsSearchOpen(false);
+          }}
+        />
 
-      {/* Add Folder Modal */}
-      <Modal
-        visible={isAddFolderVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setIsAddFolderVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: c.card }]}>
-            <Text style={[styles.modalTitle, { color: c.text }]}>
-              {folderParentId ? 'Add Subfolder' : 'Create Folder'}
-            </Text>
-            <TextInput
-              style={[styles.modalInput, { borderColor: c.border, color: c.text }]}
-              placeholder="Folder Name"
-              placeholderTextColor={c.placeholder}
-              value={folderNewName}
-              onChangeText={setFolderNewName}
-              autoFocus
-            />
-            <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={[styles.modalBtn, { backgroundColor: 'rgba(255,255,255,0.08)' }]}
-                onPress={() => setIsAddFolderVisible(false)}
-              >
-                <Text style={{ color: c.textSec, fontWeight: '600' }}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalBtn, { backgroundColor: c.accent }]}
-                onPress={handleCreateFolder}
-              >
-                <Text style={{ color: '#0a0f1e', fontWeight: '700' }}>Create</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Rename Folder Modal */}
-      <Modal
-        visible={isRenameFolderVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setIsRenameFolderVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: c.card }]}>
-            <Text style={[styles.modalTitle, { color: c.text }]}>Rename Folder</Text>
-            <TextInput
-              style={[styles.modalInput, { borderColor: c.border, color: c.text }]}
-              placeholder="Folder Name"
-              placeholderTextColor={c.placeholder}
-              value={folderRenameName}
-              onChangeText={setFolderRenameName}
-              autoFocus
-            />
-            <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={[styles.modalBtn, { backgroundColor: 'rgba(255,255,255,0.08)' }]}
-                onPress={() => setIsRenameFolderVisible(false)}
-              >
-                <Text style={{ color: c.textSec, fontWeight: '600' }}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalBtn, { backgroundColor: c.accent }]}
-                onPress={handleRenameFolder}
-              >
-                <Text style={{ color: '#0a0f1e', fontWeight: '700' }}>Rename</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Add Password Modal */}
-      <Modal
-        visible={isAddPasswordVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setIsAddPasswordVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.floatingCard, { backgroundColor: c.card, borderColor: c.border }]}>
-            <View style={styles.floatingCardHeader}>
-              <Text style={[styles.floatingCardTitle, { color: c.text }]}>Add New Password</Text>
-              <TouchableOpacity
-                style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: 16,
-                  backgroundColor: 'rgba(255,255,255,0.06)',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-                onPress={() => setIsAddPasswordVisible(false)}
-              >
-                <Text style={{ color: c.textSec, fontSize: 14, fontWeight: '700' }}>✕</Text>
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView contentContainerStyle={{ paddingBottom: 20 }}>
-              <View style={{ gap: 12 }}>
-                <View>
-                  <Text style={[styles.inputLabel, { color: c.textSec }]}>Title</Text>
-                  <TextInput
-                    style={[styles.modalInput, { borderColor: c.border, color: c.text }]}
-                    placeholder="e.g. Gmail, Netflix"
-                    placeholderTextColor={c.placeholder}
-                    value={addTitle}
-                    onChangeText={setAddTitle}
-                  />
-                </View>
-                <View>
-                  <Text style={[styles.inputLabel, { color: c.textSec }]}>Website URL</Text>
-                  <TextInput
-                    style={[styles.modalInput, { borderColor: c.border, color: c.text }]}
-                    placeholder="https://example.com"
-                    placeholderTextColor={c.placeholder}
-                    value={addUrl}
-                    onChangeText={setAddUrl}
-                    keyboardType="url"
-                    autoCapitalize="none"
-                  />
-                </View>
-                <View>
-                  <Text style={[styles.inputLabel, { color: c.textSec }]}>Username / Email</Text>
-                  <TextInput
-                    style={[styles.modalInput, { borderColor: c.border, color: c.text }]}
-                    placeholder="your@email.com"
-                    placeholderTextColor={c.placeholder}
-                    value={addUsername}
-                    onChangeText={setAddUsername}
-                    autoCapitalize="none"
-                  />
-                </View>
-                <View>
-                  <Text style={[styles.inputLabel, { color: c.textSec }]}>Password</Text>
-                  <TextInput
-                    style={[styles.modalInput, { borderColor: c.border, color: c.text }]}
-                    placeholder="Enter password"
-                    placeholderTextColor={c.placeholder}
-                    value={addPassword}
-                    onChangeText={setAddPassword}
-                    secureTextEntry
-                  />
-                </View>
-                <View>
-                  <Text style={[styles.inputLabel, { color: c.textSec }]}>Folder</Text>
-                  <TouchableOpacity
-                    style={[styles.modalInput, { borderColor: c.border, justifyContent: 'center' }]}
-                    onPress={() => setShowAddFolderSelect(!showAddFolderSelect)}
-                  >
-                    <Text style={{ color: addFolderId ? c.text : c.placeholder }}>
-                      {addFolderId ? folders.find(f => f.id === addFolderId)?.name : 'Select Folder (Optional)'}
-                    </Text>
-                  </TouchableOpacity>
-                  {showAddFolderSelect && (
-                    <View style={{ maxHeight: 100, borderWidth: 1, borderColor: c.border, borderRadius: 10, padding: 8, marginBottom: 12 }}>
-                      <ScrollView nestedScrollEnabled>
-                        <TouchableOpacity onPress={() => { setAddFolderId(''); setShowAddFolderSelect(false); }} style={{ paddingVertical: 6 }}>
-                          <Text style={{ color: c.textSec }}>No Folder</Text>
-                        </TouchableOpacity>
-                        {folders.map(f => (
-                          <TouchableOpacity key={f.id} onPress={() => { setAddFolderId(f.id); setShowAddFolderSelect(false); }} style={{ paddingVertical: 6 }}>
-                            <Text style={{ color: c.text }}>{f.name}</Text>
-                          </TouchableOpacity>
-                        ))}
-                      </ScrollView>
-                    </View>
-                  )}
-                </View>
-                <View>
-                  <Text style={[styles.inputLabel, { color: c.textSec }]}>Notes</Text>
-                  <TextInput
-                    style={[styles.modalInput, { borderColor: c.border, color: c.text, height: 80, textAlignVertical: 'top', paddingTop: 8 }]}
-                    placeholder="Any additional notes..."
-                    placeholderTextColor={c.placeholder}
-                    value={addNotes}
-                    onChangeText={setAddNotes}
-                    multiline
-                  />
-                </View>
-              </View>
+        {/* ========================================== */}
+        {/* LOGINS SUBTAB */}
+        {/* ========================================== */}
+        <View style={{ display: activeSubTab === 'Logins' ? 'flex' : 'none' }}>
+          <View>
+            {/* Stat Capsules Horizontal Bar */}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.statCapsulesBar}
+            >
+              <StatCapsule
+                label="Total"
+                value={items.length.toString()}
+                state={strengthFilter === 'all' ? 'active' : 'default'}
+                onPress={() => setStrengthFilter('all')}
+              />
+              <StatCapsule
+                label="Weak"
+                value={weakCount.toString()}
+                state={strengthFilter === 'weak' ? 'active' : 'default'}
+                onPress={() => setStrengthFilter('weak')}
+              />
+              <StatCapsule
+                label="Medium"
+                value={reusedCount.toString()}
+                state={strengthFilter === 'reused' ? 'active' : 'default'}
+                onPress={() => setStrengthFilter('reused')}
+              />
+              <StatCapsule
+                label="Strong"
+                value={strongCount.toString()}
+                state={strengthFilter === 'strong' ? 'active' : 'default'}
+                onPress={() => setStrengthFilter('strong')}
+              />
             </ScrollView>
 
-            <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={[styles.modalBtn, { backgroundColor: 'rgba(255,255,255,0.08)' }]}
-                onPress={() => setIsAddPasswordVisible(false)}
-              >
-                <Text style={{ color: c.textSec, fontWeight: '600' }}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalBtn, { backgroundColor: c.accent }]}
-                onPress={handleAddPassword}
-              >
-                <Text style={{ color: '#0a0f1e', fontWeight: '700' }}>Add to Vault</Text>
-              </TouchableOpacity>
+            {/* Folders Card */}
+            <View style={styles.folderCard}>
+              <View style={styles.folderCardHeader}>
+                <TouchableOpacity
+                  onPress={() => setIsFoldersCollapsed(!isFoldersCollapsed)}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, marginRight: 8 }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={{ fontSize: 16 }}>📁</Text>
+                  <Text style={styles.folderCardTitle} numberOfLines={1}>Folders & Categories</Text>
+                  {selectedFolderId && (
+                    <View style={[styles.activeFolderBadge, { flexShrink: 1 }]}>
+                      <Text 
+                        style={{ color: colors.accentPrimary, fontSize: 11, fontWeight: '600' }}
+                        numberOfLines={1}
+                        ellipsizeMode="tail"
+                      >
+                        {folders.find(f => f.id === selectedFolderId)?.name || 'Active'}
+                      </Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setFolderParentId(undefined);
+                      setFolderNewName('');
+                      setIsAddFolderVisible(true);
+                    }}
+                    style={styles.addFolderBtn}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={{ color: colors.accentPrimary, fontSize: 13, fontWeight: '700' }}>+ Add</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => setIsFoldersCollapsed(!isFoldersCollapsed)}
+                    style={{ padding: 4 }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
+                      {isFoldersCollapsed ? '▼' : '▲'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {!isFoldersCollapsed && (
+                <View style={styles.folderListContainer}>
+                  {folderTree.length === 0 ? (
+                    <Text style={{ color: colors.textSecondary, fontSize: 12, padding: 12, textAlign: 'center' }}>
+                      No folders created yet.
+                    </Text>
+                  ) : (
+                    folderTree.map((f) => renderFolderNode(f, 0))
+                  )}
+                </View>
+              )}
             </View>
+
+            {selectedFolderId && (
+              <View style={styles.activeFilterPill}>
+                <Text style={{ color: colors.accentPrimary, fontSize: 13, fontWeight: '600' }}>
+                  Filter: {folders.find(f => f.id === selectedFolderId)?.name}
+                </Text>
+                <TouchableOpacity onPress={() => setSelectedFolderId(null)}>
+                  <Text style={{ color: '#EF4444', fontWeight: '700', marginLeft: 8 }}>✕</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Logins Cards list */}
+            {filteredLogins.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Text style={{ fontSize: 48, marginBottom: 16 }}>🔐</Text>
+                <Text style={styles.emptyTitle}>No passwords yet</Text>
+                <Text style={styles.emptySubtitle}>
+                  Add passwords from the header button or sync from the extension.
+                </Text>
+              </View>
+            ) : (
+              filteredLogins.map((item) => {
+                const score = estimateStrength(item.decrypted.password).score;
+                const isWeak = score <= 1;
+                const isMedium = score === 2 || score === 3;
+                const statusStr = isWeak ? 'Weak' : (isMedium ? 'Medium' : 'Strong');
+
+                const folderName = folders.find(f => f.id === item.folder_id)?.name || 'Root';
+
+                return (
+                  <ListCard
+                    key={item.id}
+                    title={item.decrypted.title}
+                    subtitle={item.decrypted.username}
+                    favicon={item.domain ? getFaviconUrl(item.domain) : undefined}
+                    statusLabel={statusStr}
+                    selected={selectedItem?.id === item.id}
+                    metaColumns={[
+                      { label: 'Category', value: folderName },
+                      { label: 'Last Used', value: 'Recent' },
+                      { label: 'Strength', value: statusStr }
+                    ]}
+                    checked={item.is_favorite}
+                    onToggleCheck={async () => {
+                      // Favorite toggle logic
+                      try {
+                        const key = await getVaultKey();
+                        if (!key) return;
+                        await updateVaultItem(item.id, {
+                          title: item.decrypted.title,
+                          username: item.decrypted.username,
+                          password: item.decrypted.password,
+                          url: item.decrypted.url,
+                          notes: item.decrypted.notes,
+                          folderId: item.folder_id || undefined,
+                          isFavorite: !item.is_favorite
+                        }, item.decrypted, key);
+                        await loadData();
+                      } catch (e) {
+                        console.warn(e);
+                      }
+                    }}
+                    onPress={() => {
+                      setIsDetailPasswordVisible(false);
+                      setSelectedItem(item);
+                    }}
+                  />
+                );
+              })
+            )}
           </View>
         </View>
-      </Modal>
 
-      {/* Password Details Modal (Floating Card) */}
-      <Modal
-        visible={selectedItem !== null}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setSelectedItem(null)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.floatingCard, { backgroundColor: c.card, borderColor: c.border }]}>
-            <View style={styles.floatingCardHeader}>
-              <Text style={[styles.floatingCardTitle, { color: c.text }]}>
-                {isDetailEditing ? 'Edit Credentials' : 'Password Details'}
-              </Text>
-              <TouchableOpacity
-                style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: 16,
-                  backgroundColor: 'rgba(255,255,255,0.06)',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-                onPress={() => { setSelectedItem(null); setIsDetailEditing(false); }}
-              >
-                <Text style={{ color: c.textSec, fontSize: 14, fontWeight: '700' }}>✕</Text>
-              </TouchableOpacity>
+        {/* ========================================== */}
+        {/* BOOKMARKS SUBTAB */}
+        {/* ========================================== */}
+        <View style={{ display: activeSubTab === 'Bookmarks' ? 'flex' : 'none' }}>
+          <View>
+            {/* Folders Card for Bookmarks */}
+            <View style={styles.folderCard}>
+              <View style={styles.folderCardHeader}>
+                <TouchableOpacity
+                  onPress={() => setIsBookmarkFoldersCollapsed(!isBookmarkFoldersCollapsed)}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, marginRight: 8 }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={{ fontSize: 16 }}>📁</Text>
+                  <Text style={styles.folderCardTitle} numberOfLines={1}>Bookmark Folders</Text>
+                  {selectedFolderPath && (
+                    <View style={[styles.activeFolderBadge, { flexShrink: 1 }]}>
+                      <Text 
+                        style={{ color: colors.accentPrimary, fontSize: 11, fontWeight: '600' }}
+                        numberOfLines={1}
+                        ellipsizeMode="tail"
+                      >
+                        {selectedFolderPath}
+                      </Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setBookmarkNewPath('');
+                      setIsBookmarkFolderModalVisible('add');
+                    }}
+                    style={styles.addFolderBtn}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={{ color: colors.accentPrimary, fontSize: 13, fontWeight: '700' }}>+ Add</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => setIsBookmarkFoldersCollapsed(!isBookmarkFoldersCollapsed)}
+                    style={{ padding: 4 }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
+                      {isBookmarkFoldersCollapsed ? '▼' : '▲'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {!isBookmarkFoldersCollapsed && (
+                <View style={styles.folderListContainer}>
+                  {bookmarkFolderTree.length === 0 ? (
+                    <Text style={{ color: colors.textSecondary, fontSize: 12, padding: 12, textAlign: 'center' }}>
+                      No folders created yet.
+                    </Text>
+                  ) : (
+                    bookmarkFolderTree.map((node: BookmarkFolderNode) => renderBookmarkFolderNode(node, 0))
+                  )}
+                </View>
+              )}
             </View>
 
-            <ScrollView contentContainerStyle={{ paddingBottom: 20 }}>
-              {isDetailEditing ? (
-                <View style={{ gap: 12 }}>
-                  <View>
-                    <Text style={[styles.inputLabel, { color: c.textSec }]}>Title</Text>
-                    <TextInput
-                      style={[styles.modalInput, { borderColor: c.border, color: c.text }]}
-                      value={detailTitle}
-                      onChangeText={setDetailTitle}
-                      placeholder="Title"
-                      placeholderTextColor={c.placeholder}
-                    />
+            {selectedFolderPath && (
+              <View style={styles.activeFilterPill}>
+                <Text style={{ color: colors.accentPrimary, fontSize: 13, fontWeight: '600' }}>
+                  Filter: {selectedFolderPath}
+                </Text>
+                <TouchableOpacity onPress={() => setSelectedFolderPath(null)}>
+                  <Text style={{ color: '#EF4444', fontWeight: '700', marginLeft: 8 }}>✕</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Bookmarks Grid / List */}
+            {filteredBookmarks.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Text style={{ fontSize: 48, marginBottom: 16 }}>📚</Text>
+                <Text style={styles.emptyTitle}>No bookmarks</Text>
+                <Text style={styles.emptySubtitle}>
+                  Smart Sync browser bookmarks from Chrome extension.
+                </Text>
+              </View>
+            ) : (
+              filteredBookmarks.map((b) => {
+              let domain = b.decrypted.url || '';
+              const protoIdx = domain.indexOf('://');
+              if (protoIdx !== -1) {
+                domain = domain.substring(protoIdx + 3);
+              }
+              const slashIdx = domain.indexOf('/');
+              if (slashIdx !== -1) {
+                domain = domain.substring(0, slashIdx);
+              }
+              if (domain.startsWith('www.')) {
+                domain = domain.substring(4);
+              }
+              
+              return (
+                <ListCard
+                  key={b.id}
+                  title={b.decrypted.title}
+                  subtitle={domain}
+                  favicon={b.decrypted.favicon}
+                  metaColumns={[
+                      { label: 'Folder Path', value: b.decrypted.folderPath || 'Root' },
+                      { label: 'URL Address', value: b.decrypted.url }
+                    ]}
+                    onPress={() => {
+                      Linking.openURL(b.decrypted.url.startsWith('http') ? b.decrypted.url : `https://${b.decrypted.url}`);
+                    }}
+                  />
+                );
+              })
+            )}
+          </View>
+        </View>
+
+        {/* Padding offset at the bottom to avoid overlapping with bottom bar navigation */}
+        <View style={{ height: 100 }} />
+      </ScrollView>
+
+      {/* ========================================== */}
+      {/* ADD PASSWORD FLOATING PANEL */}
+      {/* ========================================== */}
+      <FloatingPanel
+        visible={isAddPasswordVisible}
+        onClose={() => setIsAddPasswordVisible(false)}
+        title="Add New Password"
+      >
+        <View style={styles.formContainer}>
+          <Text style={styles.inputLabel}>Title</Text>
+          <TextInput
+            style={styles.formInput}
+            placeholder="e.g. Google Account, GitHub"
+            placeholderTextColor="#8C909C"
+            value={addTitle}
+            onChangeText={setAddTitle}
+          />
+
+          <Text style={styles.inputLabel}>Website URL</Text>
+          <TextInput
+            style={styles.formInput}
+            placeholder="https://example.com"
+            placeholderTextColor="#8C909C"
+            value={addUrl}
+            onChangeText={setAddUrl}
+            keyboardType="url"
+            autoCapitalize="none"
+          />
+
+          <Text style={styles.inputLabel}>Username / Email</Text>
+          <TextInput
+            style={styles.formInput}
+            placeholder="your@email.com"
+            placeholderTextColor="#8C909C"
+            value={addUsername}
+            onChangeText={setAddUsername}
+            autoCapitalize="none"
+          />
+
+          <Text style={styles.inputLabel}>Password</Text>
+          <TextInput
+            style={styles.formInput}
+            placeholder="Enter password"
+            placeholderTextColor="#8C909C"
+            value={addPassword}
+            onChangeText={setAddPassword}
+            secureTextEntry
+          />
+
+          <Text style={styles.inputLabel}>Folder</Text>
+          <TouchableOpacity
+            style={[styles.formInput, { justifyContent: 'center' }]}
+            onPress={() => setShowAddFolderSelect(!showAddFolderSelect)}
+          >
+            <Text style={{ color: addFolderId ? '#1F2228' : '#8C909C' }}>
+              {addFolderId ? folders.find(f => f.id === addFolderId)?.name : 'Select Folder (Optional)'}
+            </Text>
+          </TouchableOpacity>
+          {showAddFolderSelect && (
+            <View style={styles.folderSelectDropdown}>
+              <ScrollView nestedScrollEnabled style={{ maxHeight: 120 }}>
+                <TouchableOpacity onPress={() => { setAddFolderId(''); setShowAddFolderSelect(false); }} style={styles.folderSelectOption}>
+                  <Text style={{ color: '#6B7280' }}>No Folder</Text>
+                </TouchableOpacity>
+                {folders.map(f => (
+                  <TouchableOpacity key={f.id} onPress={() => { setAddFolderId(f.id); setShowAddFolderSelect(false); }} style={styles.folderSelectOption}>
+                    <Text style={{ color: '#1F2228', fontWeight: '500' }}>{f.name}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+
+          <Text style={styles.inputLabel}>Notes</Text>
+          <TextInput
+            style={[styles.formInput, { height: 80, textAlignVertical: 'top', paddingTop: 10 }]}
+            placeholder="Add comments or answers to security questions..."
+            placeholderTextColor="#8C909C"
+            value={addNotes}
+            onChangeText={setAddNotes}
+            multiline
+          />
+
+          <View style={styles.panelActionRow}>
+            <TouchableOpacity
+              style={styles.panelCancelBtn}
+              onPress={() => setIsAddPasswordVisible(false)}
+            >
+              <Text style={styles.panelCancelText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.panelSaveBtn}
+              onPress={handleAddPassword}
+            >
+              <Text style={styles.panelSaveText}>Add Credentials</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </FloatingPanel>
+
+      {/* ========================================== */}
+      {/* DETAILS / EDIT PASSWORD FLOATING PANEL */}
+      {/* ========================================== */}
+      <FloatingPanel
+        visible={selectedItem !== null}
+        onClose={() => { setSelectedItem(null); setIsDetailEditing(false); }}
+        title={isDetailEditing ? 'Edit Item' : 'Credentials'}
+      >
+        {selectedItem && (
+          <View style={styles.formContainer}>
+            {isDetailEditing ? (
+              <View>
+                <Text style={styles.inputLabel}>Title</Text>
+                <TextInput
+                  style={styles.formInput}
+                  value={detailTitle}
+                  onChangeText={setDetailTitle}
+                />
+
+                <Text style={styles.inputLabel}>Website URL</Text>
+                <TextInput
+                  style={styles.formInput}
+                  value={detailUrl}
+                  onChangeText={setDetailUrl}
+                />
+
+                <Text style={styles.inputLabel}>Username</Text>
+                <TextInput
+                  style={styles.formInput}
+                  value={detailUsername}
+                  onChangeText={setDetailUsername}
+                  autoCapitalize="none"
+                />
+
+                <Text style={styles.inputLabel}>Password</Text>
+                <TextInput
+                  style={styles.formInput}
+                  value={detailPassword}
+                  onChangeText={setDetailPassword}
+                  secureTextEntry
+                />
+
+                <Text style={styles.inputLabel}>Folder</Text>
+                <TouchableOpacity
+                  style={[styles.formInput, { justifyContent: 'center' }]}
+                  onPress={() => setShowDetailFolderSelect(!showDetailFolderSelect)}
+                >
+                  <Text style={{ color: '#1F2228' }}>
+                    {detailFolderId ? folders.find(f => f.id === detailFolderId)?.name : 'No Folder'}
+                  </Text>
+                </TouchableOpacity>
+                {showDetailFolderSelect && (
+                  <View style={styles.folderSelectDropdown}>
+                    <ScrollView nestedScrollEnabled style={{ maxHeight: 120 }}>
+                      <TouchableOpacity onPress={() => { setDetailFolderId(''); setShowDetailFolderSelect(false); }} style={styles.folderSelectOption}>
+                        <Text style={{ color: '#6B7280' }}>No Folder</Text>
+                      </TouchableOpacity>
+                      {folders.map(f => (
+                        <TouchableOpacity key={f.id} onPress={() => { setDetailFolderId(f.id); setShowDetailFolderSelect(false); }} style={styles.folderSelectOption}>
+                          <Text style={{ color: '#1F2228', fontWeight: '500' }}>{f.name}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
                   </View>
-                  <View>
-                    <Text style={[styles.inputLabel, { color: c.textSec }]}>Website / Domain</Text>
-                    <TextInput
-                      style={[styles.modalInput, { borderColor: c.border, color: c.text }]}
-                      value={detailUrl}
-                      onChangeText={setDetailUrl}
-                      placeholder="Website URL"
-                      placeholderTextColor={c.placeholder}
-                    />
-                  </View>
-                  <View>
-                    <Text style={[styles.inputLabel, { color: c.textSec }]}>Username / Email</Text>
-                    <TextInput
-                      style={[styles.modalInput, { borderColor: c.border, color: c.text }]}
-                      value={detailUsername}
-                      onChangeText={setDetailUsername}
-                      placeholder="Username"
-                      placeholderTextColor={c.placeholder}
-                    />
-                  </View>
-                  <View>
-                    <Text style={[styles.inputLabel, { color: c.textSec }]}>Password</Text>
-                    <TextInput
-                      style={[styles.modalInput, { borderColor: c.border, color: c.text }]}
-                      value={detailPassword}
-                      onChangeText={setDetailPassword}
-                      placeholder="Password"
-                      placeholderTextColor={c.placeholder}
-                    />
-                  </View>
-                  <View>
-                    <Text style={[styles.inputLabel, { color: c.textSec }]}>Folder</Text>
+                )}
+
+                <Text style={styles.inputLabel}>Notes</Text>
+                <TextInput
+                  style={[styles.formInput, { height: 80, textAlignVertical: 'top', paddingTop: 10 }]}
+                  value={detailNotes}
+                  onChangeText={setDetailNotes}
+                  multiline
+                />
+
+                <View style={styles.panelActionRow}>
+                  <TouchableOpacity
+                    style={styles.panelCancelBtn}
+                    onPress={() => setIsDetailEditing(false)}
+                  >
+                    <Text style={styles.panelCancelText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.panelSaveBtn}
+                    onPress={handleSaveDetailEdit}
+                  >
+                    <Text style={styles.panelSaveText}>Save Changes</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : (
+              <View style={{ gap: 16 }}>
+                {/* View Mode Fields */}
+                <View style={styles.viewField}>
+                  <Text style={styles.viewFieldLabel}>Title</Text>
+                  <Text style={styles.viewFieldValue}>{selectedItem.decrypted.title}</Text>
+                </View>
+
+                <View style={styles.viewField}>
+                  <Text style={styles.viewFieldLabel}>Username</Text>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text style={styles.viewFieldValue}>{selectedItem.decrypted.username}</Text>
                     <TouchableOpacity
-                      style={[styles.modalInput, { borderColor: c.border, justifyContent: 'center' }]}
-                      onPress={() => setShowDetailFolderSelect(!showDetailFolderSelect)}
+                      onPress={() => copyToClipboard(selectedItem.decrypted.username, 'Username')}
+                      style={styles.copyBtn}
                     >
-                      <Text style={{ color: detailFolderId ? c.text : c.placeholder }}>
-                        {detailFolderId ? folders.find(f => f.id === detailFolderId)?.name : 'No Folder'}
-                      </Text>
+                      <Copy size={12} color="#1F2228" />
+                      <Text style={styles.copyBtnText}>Copy</Text>
                     </TouchableOpacity>
-                    {showDetailFolderSelect && (
-                      <View style={{ maxHeight: 100, borderWidth: 1, borderColor: c.border, borderRadius: 10, padding: 8, marginBottom: 12 }}>
-                        <ScrollView nestedScrollEnabled>
-                          <TouchableOpacity onPress={() => { setDetailFolderId(''); setShowDetailFolderSelect(false); }} style={{ paddingVertical: 6 }}>
-                            <Text style={{ color: c.textSec }}>No Folder</Text>
-                          </TouchableOpacity>
-                          {folders.map(f => (
-                            <TouchableOpacity key={f.id} onPress={() => { setDetailFolderId(f.id); setShowDetailFolderSelect(false); }} style={{ paddingVertical: 6 }}>
-                              <Text style={{ color: c.text }}>{f.name}</Text>
-                            </TouchableOpacity>
-                          ))}
-                        </ScrollView>
-                      </View>
-                    )}
-                  </View>
-                  <View>
-                    <Text style={[styles.inputLabel, { color: c.textSec }]}>Notes</Text>
-                    <TextInput
-                      style={[styles.modalInput, { borderColor: c.border, color: c.text, height: 80, textAlignVertical: 'top', paddingTop: 8 }]}
-                      value={detailNotes}
-                      onChangeText={setDetailNotes}
-                      placeholder="Notes"
-                      placeholderTextColor={c.placeholder}
-                      multiline
-                    />
                   </View>
                 </View>
-              ) : (
-                <View style={{ gap: 10 }}>
-                  <View style={[styles.detailCardField, { backgroundColor: c.faviconBg, borderColor: c.border }]}>
-                    <Text style={[styles.detailLabel, { color: c.textSec }]}>Title</Text>
-                    <Text style={[styles.detailValue, { color: c.text, fontWeight: '700', fontSize: 15 }]}>{selectedItem?.decrypted.title}</Text>
-                  </View>
 
-                  <View style={[styles.detailCardField, { backgroundColor: c.faviconBg, borderColor: c.border }]}>
-                    <Text style={[styles.detailLabel, { color: c.textSec }]}>Website / Domain</Text>
-                    <Text style={[styles.detailValue, { color: c.text }]}>{selectedItem?.domain || selectedItem?.decrypted.url || '—'}</Text>
-                  </View>
-
-                  <View style={[styles.detailCardField, { backgroundColor: c.faviconBg, borderColor: c.border }]}>
-                    <Text style={[styles.detailLabel, { color: c.textSec }]}>Username / Email</Text>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
-                      <Text style={[styles.detailValue, { color: c.text, flex: 1 }]} numberOfLines={1}>{selectedItem?.decrypted.username}</Text>
-                      <TouchableOpacity onPress={() => copyToClipboard(selectedItem?.decrypted.username || '', 'Username')} style={styles.copyBtnPill}>
-                        <Text style={{ color: c.accent, fontSize: 12, fontWeight: '700' }}>Copy</Text>
+                <View style={styles.viewField}>
+                  <Text style={styles.viewFieldLabel}>Password</Text>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text style={[styles.viewFieldValue, !isDetailPasswordVisible && { fontFamily: 'monospace' }]}>
+                      {isDetailPasswordVisible ? selectedItem.decrypted.password : '••••••••••••'}
+                    </Text>
+                    <View style={{ flexDirection: 'row', gap: 6 }}>
+                      <TouchableOpacity
+                        onPress={() => setIsDetailPasswordVisible(!isDetailPasswordVisible)}
+                        style={styles.copyBtn}
+                      >
+                        <Text style={styles.copyBtnText}>{isDetailPasswordVisible ? 'Hide' : 'Show'}</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => copyToClipboard(selectedItem.decrypted.password, 'Password')}
+                        style={styles.copyBtn}
+                      >
+                        <Copy size={12} color="#1F2228" />
+                        <Text style={styles.copyBtnText}>Copy</Text>
                       </TouchableOpacity>
                     </View>
                   </View>
-
-                  <View style={[styles.detailCardField, { backgroundColor: c.faviconBg, borderColor: c.border }]}>
-                    <Text style={[styles.detailLabel, { color: c.textSec }]}>Password</Text>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
-                      <Text style={[styles.detailValue, { color: c.text, flex: 1, fontFamily: isDetailPasswordVisible ? 'System' : 'monospace', letterSpacing: isDetailPasswordVisible ? 0 : 2 }]} numberOfLines={1}>
-                        {isDetailPasswordVisible ? selectedItem?.decrypted.password : '••••••••••••••••'}
-                      </Text>
-                      <View style={{ flexDirection: 'row', gap: 8 }}>
-                        <TouchableOpacity onPress={() => setIsDetailPasswordVisible(!isDetailPasswordVisible)} style={[styles.copyBtnPill, { backgroundColor: 'rgba(255,255,255,0.04)' }]}>
-                          <Text style={{ color: c.textSec, fontSize: 12, fontWeight: '700' }}>{isDetailPasswordVisible ? 'Hide' : 'Show'}</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity onPress={() => copyToClipboard(selectedItem?.decrypted.password || '', 'Password')} style={styles.copyBtnPill}>
-                          <Text style={{ color: c.accent, fontSize: 12, fontWeight: '700' }}>Copy</Text>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  </View>
-
-                  <View style={[styles.detailCardField, { backgroundColor: c.faviconBg, borderColor: c.border }]}>
-                    <Text style={[styles.detailLabel, { color: c.textSec }]}>Folder</Text>
-                    <Text style={[styles.detailValue, { color: c.text }]}>
-                      {folders.find(f => f.id === selectedItem?.folder_id)?.name || 'No Folder'}
-                    </Text>
-                  </View>
-
-                  <View style={[styles.detailCardField, { backgroundColor: c.faviconBg, borderColor: c.border, minHeight: 80 }]}>
-                    <Text style={[styles.detailLabel, { color: c.textSec }]}>Notes</Text>
-                    <Text style={[styles.detailValue, { color: c.text, fontStyle: selectedItem?.decrypted.notes ? 'normal' : 'italic', marginTop: 4 }]}>
-                      {selectedItem?.decrypted.notes || 'No notes added'}
-                    </Text>
-                  </View>
                 </View>
-              )}
-            </ScrollView>
 
-            <View style={styles.modalButtons}>
-              {isDetailEditing ? (
-                <>
+                {selectedItem.domain ? (
+                  <View style={styles.viewField}>
+                    <Text style={styles.viewFieldLabel}>Website Domain</Text>
+                    <Text style={styles.viewFieldValue}>{selectedItem.domain}</Text>
+                  </View>
+                ) : null}
+
+                <View style={styles.viewField}>
+                  <Text style={styles.viewFieldLabel}>Folder Category</Text>
+                  <Text style={styles.viewFieldValue}>
+                    {folders.find(f => f.id === selectedItem.folder_id)?.name || 'Root'}
+                  </Text>
+                </View>
+
+                {selectedItem.decrypted.notes ? (
+                  <View style={styles.viewField}>
+                    <Text style={styles.viewFieldLabel}>Notes</Text>
+                    <Text style={styles.viewFieldValue}>{selectedItem.decrypted.notes}</Text>
+                  </View>
+                ) : null}
+
+                <View style={[styles.panelActionRow, { marginTop: 12 }]}>
                   <TouchableOpacity
-                    style={[styles.modalBtn, { backgroundColor: 'rgba(255,255,255,0.08)' }]}
-                    onPress={() => setIsDetailEditing(false)}
-                  >
-                    <Text style={{ color: c.textSec, fontWeight: '600' }}>Cancel</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.modalBtn, { backgroundColor: c.accent }]}
-                    onPress={handleSaveDetailEdit}
-                  >
-                    <Text style={{ color: '#0a0f1e', fontWeight: '700' }}>Save Changes</Text>
-                  </TouchableOpacity>
-                </>
-              ) : (
-                <>
-                  <TouchableOpacity
-                    style={[styles.modalBtn, { backgroundColor: '#ef4444', marginRight: 'auto' }]}
+                    style={[styles.panelCancelBtn, { borderColor: '#EF4444' }]}
                     onPress={handleDeleteDetailItem}
                   >
-                    <Text style={{ color: '#ffffff', fontWeight: '700' }}>Delete</Text>
+                    <Text style={{ color: '#EF4444', fontWeight: '700' }}>Delete</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[styles.modalBtn, { backgroundColor: 'rgba(255,255,255,0.08)' }]}
-                    onPress={() => setSelectedItem(null)}
-                  >
-                    <Text style={{ color: c.textSec, fontWeight: '600' }}>Close</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.modalBtn, { backgroundColor: c.accent }]}
+                    style={styles.panelSaveBtn}
                     onPress={handleStartDetailEdit}
                   >
-                    <Text style={{ color: '#0a0f1e', fontWeight: '700' }}>Edit</Text>
+                    <Text style={styles.panelSaveText}>Edit Credentials</Text>
                   </TouchableOpacity>
-                </>
-              )}
-            </View>
+                </View>
+              </View>
+            )}
+          </View>
+        )}
+      </FloatingPanel>
+
+      {/* 1. Add Logins Folder Modal */}
+      <FloatingPanel
+        visible={isAddFolderVisible}
+        onClose={() => setIsAddFolderVisible(false)}
+        title="Create New Folder"
+      >
+        <View style={styles.formContainer}>
+          <Text style={styles.inputLabel}>Folder Name</Text>
+          <TextInput
+            style={styles.formInput}
+            value={folderNewName}
+            onChangeText={setFolderNewName}
+            placeholder="e.g. Work, Personal, Social..."
+            placeholderTextColor="#8C909C"
+            autoCapitalize="none"
+          />
+          <View style={styles.panelActionRow}>
+            <TouchableOpacity
+              style={styles.panelCancelBtn}
+              onPress={() => setIsAddFolderVisible(false)}
+            >
+              <Text style={styles.panelCancelText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.panelSaveBtn}
+              onPress={handleCreateFolder}
+            >
+              <Text style={styles.panelSaveText}>Create Folder</Text>
+            </TouchableOpacity>
           </View>
         </View>
-      </Modal>
+      </FloatingPanel>
+
+      {/* 2. Rename Logins Folder Modal */}
+      <FloatingPanel
+        visible={isRenameFolderVisible}
+        onClose={() => setIsRenameFolderVisible(false)}
+        title="Rename Folder"
+      >
+        <View style={styles.formContainer}>
+          <Text style={styles.inputLabel}>New Folder Name</Text>
+          <TextInput
+            style={styles.formInput}
+            value={folderRenameName}
+            onChangeText={setFolderRenameName}
+            placeholder="Enter new folder name..."
+            placeholderTextColor="#8C909C"
+            autoCapitalize="none"
+          />
+          <View style={styles.panelActionRow}>
+            <TouchableOpacity
+              style={styles.panelCancelBtn}
+              onPress={() => setIsRenameFolderVisible(false)}
+            >
+              <Text style={styles.panelCancelText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.panelSaveBtn}
+              onPress={handleRenameFolder}
+            >
+              <Text style={styles.panelSaveText}>Rename Folder</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </FloatingPanel>
+
+      {/* 3. Bookmark Folder Modal */}
+      <FloatingPanel
+        visible={isBookmarkFolderModalVisible !== null}
+        onClose={() => setIsBookmarkFolderModalVisible(null)}
+        title={isBookmarkFolderModalVisible === 'add' ? 'Create Bookmark Folder' : 'Rename Bookmark Folder'}
+      >
+        <View style={styles.formContainer}>
+          <Text style={styles.inputLabel}>Folder Path / Name</Text>
+          <TextInput
+            style={styles.formInput}
+            value={bookmarkNewPath}
+            onChangeText={setBookmarkNewPath}
+            placeholder={isBookmarkFolderModalVisible === 'add' ? "e.g. Shopping, Tech/Blogs..." : "Enter new path..."}
+            placeholderTextColor="#8C909C"
+            autoCapitalize="none"
+          />
+          <View style={styles.panelActionRow}>
+            <TouchableOpacity
+              style={styles.panelCancelBtn}
+              onPress={() => setIsBookmarkFolderModalVisible(null)}
+            >
+              <Text style={styles.panelCancelText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.panelSaveBtn}
+              onPress={isBookmarkFolderModalVisible === 'add' ? handleCreateBookmarkFolder : handleRenameBookmarkFolder}
+            >
+              <Text style={styles.panelSaveText}>
+                {isBookmarkFolderModalVisible === 'add' ? 'Create' : 'Save'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </FloatingPanel>
     </View>
   );
 }
 
-const dark = {
-  bg: '#0a0f1e', card: '#141928', text: '#f2f2f2', textSec: '#8a8f9e',
-  accent: '#5ce0d6', border: 'rgba(255,255,255,0.06)', placeholder: 'rgba(255,255,255,0.3)',
-  faviconBg: '#1e2438', badgeBg: 'rgba(92,224,214,0.1)',
-};
-const light = {
-  bg: '#f5f5f7', card: '#ffffff', text: '#151b33', textSec: '#6b7280',
-  accent: '#2563eb', border: 'rgba(0,0,0,0.08)', placeholder: 'rgba(0,0,0,0.3)',
-  faviconBg: '#f0f0f2', badgeBg: 'rgba(37,99,235,0.08)',
-};
+function getFaviconUrl(domain: string): string {
+  return `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
+}
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  searchContainer: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 16 },
-  searchInput: { height: 44, borderWidth: 1, borderRadius: 12, paddingHorizontal: 16, fontSize: 15 },
-  statsRow: { flexDirection: 'row', paddingHorizontal: 16, gap: 10, marginBottom: 16 },
-  statCard: { flex: 1, padding: 16, borderRadius: 12, borderWidth: 1, alignItems: 'center' },
-  statNumber: { fontSize: 24, fontWeight: '800' },
-  statLabel: { fontSize: 11, fontWeight: '600', marginTop: 4, textTransform: 'uppercase', letterSpacing: 0.5 },
-  listContent: { paddingHorizontal: 16, paddingBottom: 100 },
-  itemRow: {
-    flexDirection: 'row', alignItems: 'center', padding: 16, borderRadius: 12,
-    borderWidth: 1, marginBottom: 8, gap: 12,
+  scrollContent: { paddingHorizontal: 20, paddingTop: 16 },
+  
+  // Custom Top bar style
+  header: {
+    height: 90,
+    paddingTop: 40,
+    paddingHorizontal: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'transparent',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
   },
-  favicon: { width: 44, height: 44, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  itemInfo: { flex: 1 },
-  itemTitle: { fontSize: 15, fontWeight: '600' },
-  itemSubtitle: { fontSize: 13, marginTop: 2 },
-  domainBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, maxWidth: 80 },
-  domainText: { fontSize: 10, fontWeight: '600' },
-  emptyState: { alignItems: 'center', paddingTop: 80 },
-  emptyTitle: { fontSize: 18, fontWeight: '700', marginBottom: 4 },
-  emptySubtitle: { fontSize: 14, textAlign: 'center', paddingHorizontal: 40 },
-
-  // Folders UI
-  folderCard: {
-    marginHorizontal: 16,
-    borderRadius: 12,
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  
+  // Search bar
+  searchBarContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    gap: 8,
+  },
+  searchInput: {
+    height: 44,
     borderWidth: 1,
-    padding: 12,
+    borderRadius: 22,
+    paddingHorizontal: 16,
+    fontSize: 14,
+  },
+  searchCloseBtn: {
+    height: 44,
+    width: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  statCapsulesBar: {
+    gap: 8,
+    marginBottom: 16,
+    paddingRight: 40,
+  },
+
+  // Folders layout
+  folderCard: {
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: '#3D434D',
+    padding: 16,
     marginBottom: 16,
   },
   folderCardHeader: {
@@ -995,17 +1430,19 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   folderCardTitle: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '700',
+    color: '#FFFFFF',
   },
   activeFolderBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
     borderRadius: 8,
+    backgroundColor: 'rgba(244, 225, 26, 0.15)',
   },
   addFolderBtn: {
-    paddingVertical: 2,
-    paddingHorizontal: 8,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
   },
   folderListContainer: {
     marginTop: 12,
@@ -1017,120 +1454,146 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 8,
-    borderRadius: 6,
+    paddingVertical: 10,
+    borderRadius: 8,
     marginVertical: 1,
   },
   folderNodeText: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '500',
   },
   folderRowActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 12,
     paddingRight: 8,
   },
   folderActionIcon: {
-    padding: 4,
+    padding: 6,
   },
 
-  // Modal styles
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(5, 8, 16, 0.85)',
-    justifyContent: 'center',
+  // Active filter badge
+  activeFilterPill: {
+    flexDirection: 'row',
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(244, 225, 26, 0.15)',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
     alignItems: 'center',
-    padding: 20,
-  },
-  modalContent: {
-    width: '100%',
-    maxWidth: 320,
-    borderRadius: 16,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-  },
-  modalTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    marginBottom: 12,
-  },
-  modalInput: {
-    height: 44,
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    fontSize: 14,
     marginBottom: 16,
-    textAlignVertical: 'center',
-  },
-  modalButtons: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 10,
-    marginTop: 10,
-  },
-  modalBtn: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  floatingCard: {
-    width: '100%',
-    maxWidth: 340,
-    borderRadius: 20,
-    padding: 20,
     borderWidth: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.3,
-    shadowRadius: 20,
-    elevation: 10,
-    maxHeight: '80%',
+    borderColor: '#F4E11A',
   },
-  floatingCardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.06)',
-    paddingBottom: 12,
-  },
-  floatingCardTitle: {
-    fontSize: 18,
-    fontWeight: '800',
+
+  // Empty state
+  emptyState: { alignItems: 'center', paddingTop: 60, paddingBottom: 60 },
+  emptyTitle: { fontSize: 18, fontWeight: '700', color: '#FFFFFF', marginBottom: 6 },
+  emptySubtitle: { fontSize: 13, color: '#C7CBD1', textAlign: 'center', paddingHorizontal: 40 },
+
+  // Floating Panel form styling
+  formContainer: {
+    gap: 12,
+    width: '100%',
   },
   inputLabel: {
     fontSize: 11,
     fontWeight: '700',
+    color: '#6B7280',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
-    marginBottom: 6,
+    marginTop: 6,
   },
-  detailLabel: {
+  formInput: {
+    height: 48,
+    borderRadius: 14,
+    borderWidth: 1.2,
+    borderColor: 'rgba(0,0,0,0.1)',
+    backgroundColor: 'rgba(0,0,0,0.02)',
+    paddingHorizontal: 12,
+    fontSize: 14,
+    color: '#1F2228',
+  },
+  folderSelectOption: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.04)',
+  },
+  folderSelectDropdown: {
+    borderWidth: 1.2,
+    borderColor: 'rgba(0,0,0,0.1)',
+    borderRadius: 14,
+    marginTop: -8,
+    backgroundColor: '#FFFFFF',
+    overflow: 'hidden',
+  },
+  panelActionRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 18,
+  },
+  panelCancelBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: 999,
+    borderWidth: 1.5,
+    borderColor: 'rgba(0,0,0,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  panelCancelText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1F2228',
+  },
+  panelSaveBtn: {
+    flex: 1.5,
+    height: 48,
+    borderRadius: 999,
+    backgroundColor: '#F4E11A',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  panelSaveText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1F2228',
+  },
+
+  // View fields
+  viewField: {
+    backgroundColor: 'rgba(0,0,0,0.03)',
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.05)',
+  },
+  viewFieldLabel: {
     fontSize: 10,
     fontWeight: '700',
+    color: '#6B7280',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     marginBottom: 4,
   },
-  detailValue: {
+  viewFieldValue: {
     fontSize: 14,
-    fontWeight: '500',
+    fontWeight: '600',
+    color: '#1F2228',
   },
-  copyBtnPill: {
-    backgroundColor: 'rgba(255,255,255,0.06)',
+  copyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(0,0,0,0.05)',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 6,
   },
-  detailCardField: {
-    padding: 12,
-    borderRadius: 12,
-    borderWidth: 1,
+  copyBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#1F2228',
   },
 });
