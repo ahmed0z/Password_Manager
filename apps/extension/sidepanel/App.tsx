@@ -3,7 +3,7 @@ import {
   Shield, Key, Search, Star, Copy, Eye, EyeOff,
   ExternalLink, Bookmark, Plus, RefreshCw, Check,
   Settings, LogOut, ChevronRight, Lock, Loader2, X, Clock, Edit3,
-  Sparkles, Laptop, Smartphone
+  Sparkles, Laptop, Smartphone, ShieldAlert, ShieldCheck
 } from 'lucide-react';
 import {
   signIn, signOut, getSession, getVaultItems, syncBookmarks, createVaultItem, getBookmarks,
@@ -36,7 +36,7 @@ function getFaviconUrl(domain: string): string {
   return `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
 }
 
-type Tab = 'vault' | 'generator' | 'security' | 'devices' | 'settings';
+type Tab = 'vault' | 'generator' | 'settings';
 type SubTab = 'logins' | 'bookmarks';
 type StrengthFilter = 'all' | 'weak' | 'reused' | 'strong';
 
@@ -931,47 +931,70 @@ export function SidePanel() {
             {/* LOGINS SECTION */}
             {subTab === 'logins' && (
               <>
-                {/* Stat Capsule Filters */}
-                <div style={{ ...s.statsBar, padding: '0 0 16px 0' }}>
-                  <div 
-                    style={strengthFilter === 'all' ? s.statPillActive : s.statPill}
-                    onClick={() => setStrengthFilter('all')}
-                  >
-                    <div style={strengthFilter === 'all' ? s.statNumberActive : s.statNumber}>{totalPasswords}</div>
-                    <div style={strengthFilter === 'all' ? s.statLabelActive : s.statLabel}>Total</div>
-                  </div>
-                  <div 
-                    style={strengthFilter === 'weak' ? s.statPillActive : s.statPill}
-                    onClick={() => setStrengthFilter('weak')}
-                  >
-                    <div style={strengthFilter === 'weak' ? s.statNumberActive : s.statNumber}>{weakCount}</div>
-                    <div style={strengthFilter === 'weak' ? s.statLabelActive : s.statLabel}>Weak</div>
-                  </div>
-                  <div 
-                    style={strengthFilter === 'reused' ? s.statPillActive : s.statPill}
-                    onClick={() => setStrengthFilter('reused')}
-                  >
-                    <div style={strengthFilter === 'reused' ? s.statNumberActive : s.statNumber}>{reusedCount}</div>
-                    <div style={strengthFilter === 'reused' ? s.statLabelActive : s.statLabel}>Medium</div>
-                  </div>
-                  <div 
-                    style={strengthFilter === 'strong' ? s.statPillActive : s.statPill}
-                    onClick={() => setStrengthFilter('strong')}
-                  >
-                    <div style={strengthFilter === 'strong' ? s.statNumberActive : s.statNumber}>{strongCount}</div>
-                    <div style={strengthFilter === 'strong' ? s.statLabelActive : s.statLabel}>Strong</div>
-                  </div>
-                </div>
+            {/* Stat Capsule Filters */}
+            <div style={s.statsBar}>
+              <div 
+                style={strengthFilter === 'all' ? s.statPillActive : s.statPill}
+                onClick={() => setStrengthFilter('all')}
+              >
+                <Key size={13} style={{ color: strengthFilter === 'all' ? '#1F2228' : c.accent }} />
+                <span style={{ fontSize: '11px', fontWeight: 600, color: strengthFilter === 'all' ? '#1F2228' : c.textSec }}>Total</span>
+                <span style={{ fontSize: '12px', fontWeight: 700, color: strengthFilter === 'all' ? '#1F2228' : c.text }}>{totalPasswords}</span>
+              </div>
+              <div 
+                style={strengthFilter === 'weak' ? s.statPillActive : s.statPill}
+                onClick={() => setStrengthFilter('weak')}
+              >
+                <ShieldAlert size={13} style={{ color: strengthFilter === 'weak' ? '#1F2228' : '#EF4444' }} />
+                <span style={{ fontSize: '11px', fontWeight: 600, color: strengthFilter === 'weak' ? '#1F2228' : c.textSec }}>Weak</span>
+                <span style={{ fontSize: '12px', fontWeight: 700, color: strengthFilter === 'weak' ? '#1F2228' : c.text }}>{weakCount}</span>
+              </div>
+              <div 
+                style={strengthFilter === 'reused' ? s.statPillActive : s.statPill}
+                onClick={() => setStrengthFilter('reused')}
+              >
+                <ShieldAlert size={13} style={{ color: strengthFilter === 'reused' ? '#1F2228' : '#F97316' }} />
+                <span style={{ fontSize: '11px', fontWeight: 600, color: strengthFilter === 'reused' ? '#1F2228' : c.textSec }}>Medium</span>
+                <span style={{ fontSize: '12px', fontWeight: 700, color: strengthFilter === 'reused' ? '#1F2228' : c.text }}>{reusedCount}</span>
+              </div>
+              <div 
+                style={strengthFilter === 'strong' ? s.statPillActive : s.statPill}
+                onClick={() => setStrengthFilter('strong')}
+              >
+                <ShieldCheck size={13} style={{ color: strengthFilter === 'strong' ? '#1F2228' : '#22C55E' }} />
+                <span style={{ fontSize: '11px', fontWeight: 600, color: strengthFilter === 'strong' ? '#1F2228' : c.textSec }}>Strong</span>
+                <span style={{ fontSize: '12px', fontWeight: 700, color: strengthFilter === 'strong' ? '#1F2228' : c.text }}>{strongCount}</span>
+              </div>
+            </div>
 
                 {/* Folders Accordion */}
                 <div style={fStyles.section}>
-                  <div style={fStyles.header}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }} onClick={() => setShowFoldersList(!showFoldersList)}>
+                  <div 
+                    style={{
+                      ...fStyles.header,
+                      background: 'rgba(255, 255, 255, 0.03)',
+                      border: `1px solid ${c.cardBorder}`,
+                      borderRadius: '12px',
+                      padding: '8px 12px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      transition: 'all 0.15s ease',
+                    }}
+                    onClick={() => setShowFoldersList(!showFoldersList)}
+                  >
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600, color: c.text }}>
                       📁 Folders {showFoldersList ? '▲' : '▼'}
                     </span>
                     <button
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex' }}
-                      onClick={() => { setFolderParentId(undefined); setFolderNewName(''); setShowAddFolderModal(true); }}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', display: 'flex', borderRadius: '4px' }}
+                      onClick={(e) => { 
+                        e.stopPropagation(); 
+                        setFolderParentId(undefined); 
+                        setFolderNewName(''); 
+                        setShowAddFolderModal(true); 
+                      }}
                     >
                       <Plus size={14} color={c.accent} />
                     </button>
@@ -1127,13 +1150,31 @@ export function SidePanel() {
               <>
                 {/* Folders Accordion for Bookmarks */}
                 <div style={fStyles.section}>
-                  <div style={fStyles.header}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }} onClick={() => setShowFoldersList(!showFoldersList)}>
+                  <div 
+                    style={{
+                      ...fStyles.header,
+                      background: 'rgba(255, 255, 255, 0.03)',
+                      border: `1px solid ${c.cardBorder}`,
+                      borderRadius: '12px',
+                      padding: '8px 12px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      transition: 'all 0.15s ease',
+                    }}
+                    onClick={() => setShowFoldersList(!showFoldersList)}
+                  >
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600, color: c.text }}>
                       📁 Folders {showFoldersList ? '▲' : '▼'}
                     </span>
                     <button
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex' }}
-                      onClick={() => { setBookmarkNewPath(''); setShowBookmarkFolderModal('add'); }}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', display: 'flex', borderRadius: '4px' }}
+                      onClick={(e) => { 
+                        e.stopPropagation(); 
+                        setBookmarkNewPath(''); 
+                        setShowBookmarkFolderModal('add'); 
+                      }}
                     >
                       <Plus size={14} color={c.accent} />
                     </button>
@@ -1321,152 +1362,7 @@ export function SidePanel() {
           </div>
         )}
 
-        {/* SECURITY TAB */}
-        {tab === 'security' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            {/* Health Score Gauge */}
-            <div style={{ background: c.card, borderRadius: '28px', border: `1px solid ${c.cardBorder}`, padding: '24px', textCenter: 'center', boxShadow: '0 4px 16px rgba(0,0,0,0.1)', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-              <span style={{ fontSize: '14px', fontWeight: 600, color: '#C7CBD1', marginBottom: '16px' }}>Security Score</span>
-              
-              {/* Semi-circular donut chart */}
-              <div style={{ position: 'relative', width: '160px', height: '90px', overflow: 'hidden', display: 'flex', justifyContent: 'center' }}>
-                <svg width="160" height="160" style={{ position: 'absolute', top: 0 }}>
-                  <circle cx="80" cy="80" r="60" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="18" strokeDasharray="188.5 188.5" strokeDashoffset="0" strokeLinecap="round" transform="rotate(-180 80 80)" />
-                  <circle cx="80" cy="80" r="60" fill="none" stroke={c.accent} strokeWidth="18" strokeDasharray="188.5 188.5" strokeDashoffset={188.5 - (188.5 * healthPercent) / 100} strokeLinecap="round" transform="rotate(-180 80 80)" style={{ transition: 'stroke-dashoffset 0.8s ease-in-out' }} />
-                </svg>
-                <div style={{ position: 'absolute', bottom: '4px', textAlign: 'center' }}>
-                  <span style={{ fontSize: '32px', fontWeight: 700, color: '#FFFFFF' }}>{healthPercent}%</span>
-                  <div style={{ fontSize: '12px', fontWeight: 600, color: healthPercent >= 75 ? '#22C55E' : (healthPercent >= 45 ? '#F4E11A' : '#EF4444'), marginTop: '2px' }}>
-                    {healthPercent >= 75 ? 'Safe Vault' : (healthPercent >= 45 ? 'Medium Risk' : 'High Threat')}
-                  </div>
-                </div>
-              </div>
-            </div>
 
-            {/* Exposed credentials or alerts list */}
-            <div style={s.sectionLabel}>Weak & Vulnerable Passwords</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {vaultItems.filter(i => getPasswordStrengthScore(i.passwordDecrypted) <= 1).length === 0 ? (
-                <div style={{ background: c.card, borderRadius: '20px', padding: '24px', textAlign: 'center', border: `1px solid ${c.cardBorder}` }}>
-                  <span style={{ fontSize: '14px', color: '#22C55E', fontWeight: 600 }}>✓ No security alerts. Great job!</span>
-                </div>
-              ) : (
-                vaultItems.filter(i => getPasswordStrengthScore(i.passwordDecrypted) <= 1).map(item => (
-                  <div 
-                    key={item.id} 
-                    style={{ ...s.itemCard, border: '1px solid rgba(239, 68, 68, 0.2)', background: 'rgba(239, 68, 68, 0.04)' }}
-                    onClick={() => handleEditOpen(item, item.passwordDecrypted)}
-                  >
-                    <div style={{ ...s.favicon, background: 'rgba(239,68,68,0.1)' }}>
-                      <Lock size={16} color="#EF4444" />
-                    </div>
-                    <div style={s.itemInfo}>
-                      <div style={s.itemTitle}>{item.title}</div>
-                      <div style={{ ...s.itemSub, color: '#EF4444' }}>Weak master password hash</div>
-                    </div>
-                    <span style={{ fontSize: '11px', color: '#EF4444', fontWeight: 700 }}>Vulnerable</span>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* DEVICES TAB */}
-        {tab === 'devices' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            {/* Device chips */}
-            <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '4px' }}>
-              {devicesList.map((dev, idx) => (
-                <div 
-                  key={idx} 
-                  style={{
-                    background: activeDeviceIdx === idx ? c.accent : c.card,
-                    border: `1px solid ${activeDeviceIdx === idx ? c.accent : c.cardBorder}`,
-                    borderRadius: '20px', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '10px',
-                    cursor: 'pointer', flexShrink: 0, transition: 'all 0.2s ease',
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.06)'
-                  }}
-                  onClick={() => setActiveDeviceIdx(idx)}
-                >
-                  <div style={{ color: activeDeviceIdx === idx ? '#1F2228' : '#FFFFFF' }}>{dev.icon}</div>
-                  <div>
-                    <div style={{ fontSize: '13px', fontWeight: 600, color: activeDeviceIdx === idx ? '#1F2228' : '#FFFFFF' }}>{dev.name}</div>
-                    <div style={{ fontSize: '11px', color: activeDeviceIdx === idx ? '#1F2228' : '#C7CBD1' }}>{dev.time}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Map session */}
-            <div style={s.sectionLabel}>Map Session</div>
-            <div style={{
-              background: '#6B7280', borderRadius: '28px', border: `1px solid ${c.cardBorder}`, height: '160px',
-              position: 'relative', overflow: 'hidden', boxShadow: '0 4px 16px rgba(0,0,0,0.1)'
-            }}>
-              {/* Illustrated map representation */}
-              <div style={{
-                position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, opacity: 0.15,
-                backgroundSize: 'cover', backgroundImage: "url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"200\" height=\"100\" viewBox=\"0 0 200 100\"><path fill=\"white\" d=\"M 10 10 L 40 10 L 50 40 L 20 80 Z M 80 20 L 120 30 L 110 60 L 90 70 Z M 140 40 L 180 30 L 190 70 L 150 80 Z\" /></svg>')"
-              }}></div>
-              
-              {/* Map Pins */}
-              <div 
-                style={{
-                  position: 'absolute', top: '40%', left: '35%', width: '24px', height: '24px',
-                  borderRadius: '50%', background: '#F4E11A', border: '3px solid #1F2228',
-                  boxShadow: '0 4px 8px rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: '9px', fontWeight: 700, color: '#1F2228', cursor: 'pointer'
-                }}
-                title="Europe Session Location"
-                onClick={() => setActiveDeviceIdx(0)}
-              >
-                2
-              </div>
-              <div 
-                style={{
-                  position: 'absolute', top: '35%', left: '70%', width: '24px', height: '24px',
-                  borderRadius: '50%', background: '#171819', border: '3px solid #F4E11A',
-                  boxShadow: '0 4px 8px rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: '9px', fontWeight: 700, color: '#FFFFFF', cursor: 'pointer'
-                }}
-                title="North America Session Location"
-                onClick={() => setActiveDeviceIdx(2)}
-              >
-                1
-              </div>
-            </div>
-
-            {/* Bottom device detail sheet */}
-            <div style={{ background: '#FFFFFF', borderRadius: '28px', border: '1px solid rgba(0,0,0,0.06)', padding: '20px', color: '#1F2228', boxShadow: '0 8px 32px rgba(0,0,0,0.1)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                <span style={{ fontSize: '16px', fontWeight: 700 }}>{devicesList[activeDeviceIdx].name}</span>
-                <span style={{
-                  padding: '4px 10px', borderRadius: '999px', fontSize: '11px', fontWeight: 700,
-                  background: devicesList[activeDeviceIdx].trusted ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)',
-                  color: devicesList[activeDeviceIdx].trusted ? '#22C55E' : '#EF4444'
-                }}>
-                  {devicesList[activeDeviceIdx].trusted ? 'Trusted' : 'Untrusted'}
-                </span>
-              </div>
-              <div style={{ borderBottom: '1px dotted rgba(31,34,40,0.12)', margin: '12px 0' }}></div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '13px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: '#6B7280' }}>IP Address</span>
-                  <span style={{ fontWeight: 600 }}>{devicesList[activeDeviceIdx].ip}</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: '#6B7280' }}>Location</span>
-                  <span style={{ fontWeight: 600 }}>{devicesList[activeDeviceIdx].flag} {devicesList[activeDeviceIdx].location}</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: '#6B7280' }}>Last Active</span>
-                  <span style={{ fontWeight: 600 }}>{devicesList[activeDeviceIdx].time}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* SETTINGS TAB */}
         {tab === 'settings' && (
@@ -1474,16 +1370,19 @@ export function SidePanel() {
             {/* Stats */}
             <div style={s.statsBar}>
               <div style={s.statPill}>
-                <div style={{ ...s.statNumber, color: c.accent }}>{vaultItems.length || '0'}</div>
-                <div style={s.statLabel}>Vault</div>
+                <Key size={13} style={{ color: c.accent }} />
+                <span style={{ fontSize: '11px', fontWeight: 600, color: c.textSec }}>Vault</span>
+                <span style={{ fontSize: '12px', fontWeight: 700, color: c.text }}>{vaultItems.length || '0'}</span>
               </div>
               <div style={s.statPill}>
-                <div style={{ ...s.statNumber, color: c.accent }}>{bookmarks.length || '0'}</div>
-                <div style={s.statLabel}>Bookmarks</div>
+                <Bookmark size={13} style={{ color: c.accent }} />
+                <span style={{ fontSize: '11px', fontWeight: 600, color: c.textSec }}>Bookmarks</span>
+                <span style={{ fontSize: '12px', fontWeight: 700, color: c.text }}>{bookmarks.length || '0'}</span>
               </div>
               <div style={s.statPill}>
-                <div style={{ ...s.statNumber, color: '#22c55e' }}>256</div>
-                <div style={s.statLabel}>AES</div>
+                <Shield size={13} style={{ color: '#22C55E' }} />
+                <span style={{ fontSize: '11px', fontWeight: 600, color: c.textSec }}>AES</span>
+                <span style={{ fontSize: '12px', fontWeight: 700, color: '#22C55E' }}>256</span>
               </div>
             </div>
 
@@ -1614,8 +1513,6 @@ export function SidePanel() {
         {[
           { id: 'vault' as Tab, icon: <Key size={16} />, label: 'Vault' },
           { id: 'generator' as Tab, icon: <Sparkles size={16} />, label: 'Generator' },
-          { id: 'security' as Tab, icon: <Shield size={16} />, label: 'Security' },
-          { id: 'devices' as Tab, icon: <Laptop size={16} />, label: 'Devices' },
           { id: 'settings' as Tab, icon: <Settings size={16} />, label: 'Settings' },
         ].map((t) => {
           const isActive = tab === t.id;
@@ -1719,7 +1616,7 @@ export function SidePanel() {
       {/* Floating Panel detail sheet */}
       {editingItem && (
         <div style={mStyles.overlay}>
-          <div style={{ ...mStyles.modal, maxWidth: '340px', background: '#FFFFFF', color: '#1F2228' }}>
+          <div style={{ ...mStyles.modal, maxWidth: '320px', padding: '14px 18px', background: '#FFFFFF', color: '#1F2228' }}>
             <div style={mStyles.header}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <div style={{
@@ -1741,17 +1638,17 @@ export function SidePanel() {
               <button style={{ ...mStyles.closeBtn, background: 'rgba(0,0,0,0.06)', color: '#1F2228' }} onClick={() => { setEditingItem(null); setIsEditing(false); }}><X size={18} /></button>
             </div>
             
-            <div style={{ ...mStyles.form, marginTop: 8 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: 4 }}>
               {/* Title Field */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                 <span style={{ fontSize: '11px', color: '#6B7280', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Title</span>
                 <input
                   style={{
                     ...s.authInput,
                     background: isEditing ? 'rgba(0,0,0,0.03)' : 'transparent',
                     border: isEditing ? '1px solid rgba(0,0,0,0.12)' : 'none',
-                    padding: isEditing ? '0 12px' : '0 4px',
-                    height: isEditing ? 38 : 28,
+                    padding: isEditing ? '0 10px' : '0 2px',
+                    height: isEditing ? 34 : 22,
                     fontSize: '13px',
                     fontWeight: isEditing ? 500 : 600,
                     color: '#1F2228'
@@ -1762,8 +1659,10 @@ export function SidePanel() {
                 />
               </div>
 
+              <div style={{ height: '1px', background: 'rgba(31, 34, 40, 0.08)' }} />
+
               {/* Username Field */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                 <span style={{ fontSize: '11px', color: '#6B7280', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Username / Email</span>
                 <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
                   <input
@@ -1771,9 +1670,9 @@ export function SidePanel() {
                       ...s.authInput,
                       background: isEditing ? 'rgba(0,0,0,0.03)' : 'transparent',
                       border: isEditing ? '1px solid rgba(0,0,0,0.12)' : 'none',
-                      padding: isEditing ? '0 12px' : '0 4px',
+                      padding: isEditing ? '0 10px' : '0 2px',
                       paddingRight: isEditing ? 12 : 60,
-                      height: isEditing ? 38 : 28,
+                      height: isEditing ? 34 : 22,
                       fontSize: '13px',
                       width: '100%',
                       color: '#1F2228'
@@ -1786,7 +1685,7 @@ export function SidePanel() {
                     <button
                       style={{
                         position: 'absolute', right: 4, background: 'rgba(31,34,40,0.06)',
-                        border: 'none', borderRadius: '999px', color: '#1F2228', padding: '4px 10px',
+                        border: 'none', borderRadius: '999px', color: '#1F2228', padding: '2px 8px',
                         fontSize: '11px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit'
                       }}
                       onClick={() => handleCopy(editForm.username, 'usr')}
@@ -1797,8 +1696,10 @@ export function SidePanel() {
                 </div>
               </div>
 
+              <div style={{ height: '1px', background: 'rgba(31, 34, 40, 0.08)' }} />
+
               {/* Password Field */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                 <span style={{ fontSize: '11px', color: '#6B7280', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Password</span>
                 <div style={{ position: 'relative', display: 'flex', alignItems: 'center', width: '100%' }}>
                   <input
@@ -1806,9 +1707,9 @@ export function SidePanel() {
                       ...s.authInput,
                       background: isEditing ? 'rgba(0,0,0,0.03)' : 'transparent',
                       border: isEditing ? '1px solid rgba(0,0,0,0.12)' : 'none',
-                      padding: isEditing ? '0 12px' : '0 4px',
+                      padding: isEditing ? '0 10px' : '0 2px',
                       paddingRight: isEditing ? 40 : 76,
-                      height: isEditing ? 38 : 28,
+                      height: isEditing ? 34 : 22,
                       fontSize: '13px',
                       fontFamily: (!isEditing && !isPasswordVisible) ? 'monospace' : 'inherit',
                       width: '100%',
@@ -1833,7 +1734,7 @@ export function SidePanel() {
                       <button
                         style={{
                           background: 'rgba(31,34,40,0.06)',
-                          border: 'none', borderRadius: '999px', color: '#1F2228', padding: '4px 10px',
+                          border: 'none', borderRadius: '999px', color: '#1F2228', padding: '2px 8px',
                           fontSize: '11px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit'
                         }}
                         onClick={() => handleCopy(editForm.password, 'pwd')}
@@ -1845,16 +1746,18 @@ export function SidePanel() {
                 </div>
               </div>
 
+              <div style={{ height: '1px', background: 'rgba(31, 34, 40, 0.08)' }} />
+
               {/* Domain Field */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                 <span style={{ fontSize: '11px', color: '#6B7280', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Domain</span>
                 <input
                   style={{
                     ...s.authInput,
                     background: isEditing ? 'rgba(0,0,0,0.03)' : 'transparent',
                     border: isEditing ? '1px solid rgba(0,0,0,0.12)' : 'none',
-                    padding: isEditing ? '0 12px' : '0 4px',
-                    height: isEditing ? 38 : 28,
+                    padding: isEditing ? '0 10px' : '0 2px',
+                    height: isEditing ? 34 : 22,
                     fontSize: '13px',
                     color: '#1F2228'
                   }}
@@ -1864,17 +1767,19 @@ export function SidePanel() {
                 />
               </div>
 
+              <div style={{ height: '1px', background: 'rgba(31, 34, 40, 0.08)' }} />
+
               {/* Notes Field */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                 <span style={{ fontSize: '11px', color: '#6B7280', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Notes</span>
                 <textarea
                   style={{
                     ...s.authInput,
                     background: isEditing ? 'rgba(0,0,0,0.03)' : 'transparent',
                     border: isEditing ? '1px solid rgba(0,0,0,0.12)' : 'none',
-                    padding: isEditing ? '8px 12px' : '4px 4px',
-                    height: isEditing ? 70 : 'auto',
-                    minHeight: isEditing ? 70 : 28,
+                    padding: isEditing ? '6px 10px' : '2px 2px',
+                    height: isEditing ? 60 : 'auto',
+                    minHeight: isEditing ? 60 : 22,
                     fontSize: '13px',
                     color: '#1F2228',
                     resize: isEditing ? 'vertical' : 'none'
@@ -1888,12 +1793,17 @@ export function SidePanel() {
               </div>
 
               {/* Action Buttons */}
-              <div style={{ ...mStyles.buttons, marginTop: 14 }}>
+              <div style={{ ...mStyles.buttons, marginTop: 8 }}>
                 {!isEditing ? (
                   <>
                     <button
                       type="button"
-                      style={mStyles.cancelBtn}
+                      style={{
+                        ...mStyles.cancelBtn,
+                        background: 'rgba(31, 34, 40, 0.06)',
+                        color: '#1F2228',
+                        border: '1px solid rgba(31, 34, 40, 0.12)'
+                      }}
                       onClick={() => { setEditingItem(null); setIsEditing(false); }}
                     >
                       Close
@@ -1913,7 +1823,12 @@ export function SidePanel() {
                   <>
                     <button
                       type="button"
-                      style={mStyles.cancelBtn}
+                      style={{
+                        ...mStyles.cancelBtn,
+                        background: 'rgba(31, 34, 40, 0.06)',
+                        color: '#1F2228',
+                        border: '1px solid rgba(31, 34, 40, 0.12)'
+                      }}
                       onClick={() => setIsEditing(false)}
                     >
                       Cancel
