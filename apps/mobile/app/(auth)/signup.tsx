@@ -10,6 +10,8 @@ import {
   Platform,
   ScrollView,
   ActivityIndicator,
+  TouchableWithoutFeedback,
+  Keyboard,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { signUp, estimateStrength, uint8ArrayToBase64 } from '@vaultsync/core';
@@ -57,108 +59,116 @@ export default function SignUpScreen() {
   return (
     <KeyboardAvoidingView
       style={[styles.container, { backgroundColor: colors.bg }]}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-        {/* Frame Card */}
-        <View style={[styles.signupCard, { backgroundColor: colors.cardBg }]}>
-          <View style={styles.logoContainer}>
-            <View style={[styles.logoIcon, { backgroundColor: colors.accent }]}>
-              <Text style={styles.logoEmoji}>🛡️</Text>
-            </View>
-            <Text style={[styles.logoTitle, { color: colors.text }]}>Create Vault</Text>
-            <Text style={[styles.logoSubtitle, { color: colors.textSecondary }]}>
-              Zero-Knowledge On-Device Encryption
-            </Text>
-          </View>
-
-          {/* Info Banner */}
-          <View style={[styles.infoBanner, { backgroundColor: colors.infoBg }]}>
-            <Text style={[styles.infoText, { color: colors.infoText }]}>
-              ℹ️ Your master password derives your local encryption keys. Your password never leaves your device.
-            </Text>
-          </View>
-
-          <View style={styles.form}>
-            <View style={styles.inputGroup}>
-              <Text style={[styles.label, { color: colors.textSecondary }]}>Email Address</Text>
-              <TextInput
-                style={[styles.input, { backgroundColor: colors.inputBg, color: colors.text, borderColor: colors.border }]}
-                placeholder="you@example.com"
-                placeholderTextColor={colors.placeholder}
-                value={email}
-                onChangeText={setEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
-              />
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={[styles.label, { color: colors.textSecondary }]}>Master Password</Text>
-              <TextInput
-                style={[styles.input, { backgroundColor: colors.inputBg, color: colors.text, borderColor: colors.border }]}
-                placeholder="Choose a strong password"
-                placeholderTextColor={colors.placeholder}
-                value={masterPassword}
-                onChangeText={setMasterPassword}
-                secureTextEntry
-              />
-              {masterPassword ? (
-                <View style={styles.strengthContainer}>
-                  <View style={styles.strengthBar}>
-                    {[0, 1, 2, 3, 4].map((i) => (
-                      <View
-                        key={i}
-                        style={[
-                          styles.strengthSegment,
-                          {
-                            backgroundColor: i <= strength.score ? strengthColors[strength.score] : colors.border,
-                          },
-                        ]}
-                      />
-                    ))}
-                  </View>
-                  <Text style={[styles.strengthLabel, { color: strengthColors[strength.score] }]}>
-                    {strength.label} · {strength.entropy} bits entropy
-                  </Text>
+      <ScrollView 
+        contentContainerStyle={styles.scrollContent} 
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+      >
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <View style={{ flex: 1, width: '100%', justifyContent: 'center' }}>
+            {/* Frame Card */}
+            <View style={[styles.signupCard, { backgroundColor: colors.cardBg }]}>
+              <View style={styles.logoContainer}>
+                <View style={[styles.logoIcon, { backgroundColor: colors.accent }]}>
+                  <Text style={styles.logoEmoji}>🛡️</Text>
                 </View>
-              ) : null}
+                <Text style={[styles.logoTitle, { color: colors.text }]}>Create Vault</Text>
+                <Text style={[styles.logoSubtitle, { color: colors.textSecondary }]}>
+                  Zero-Knowledge On-Device Encryption
+                </Text>
+              </View>
+
+              {/* Info Banner */}
+              <View style={[styles.infoBanner, { backgroundColor: colors.infoBg }]}>
+                <Text style={[styles.infoText, { color: colors.infoText }]}>
+                  ℹ️ Your master password derives your local encryption keys. Your password never leaves your device.
+                </Text>
+              </View>
+
+              <View style={styles.form}>
+                <View style={styles.inputGroup}>
+                  <Text style={[styles.label, { color: colors.textSecondary }]}>Email Address</Text>
+                  <TextInput
+                    style={[styles.input, { backgroundColor: colors.inputBg, color: colors.text, borderColor: colors.border }]}
+                    placeholder="you@example.com"
+                    placeholderTextColor={colors.placeholder}
+                    value={email}
+                    onChangeText={setEmail}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                  />
+                </View>
+
+                <View style={styles.inputGroup}>
+                  <Text style={[styles.label, { color: colors.textSecondary }]}>Master Password</Text>
+                  <TextInput
+                    style={[styles.input, { backgroundColor: colors.inputBg, color: colors.text, borderColor: colors.border }]}
+                    placeholder="Choose a strong password"
+                    placeholderTextColor={colors.placeholder}
+                    value={masterPassword}
+                    onChangeText={setMasterPassword}
+                    secureTextEntry
+                  />
+                  {masterPassword ? (
+                    <View style={styles.strengthContainer}>
+                      <View style={styles.strengthBar}>
+                        {[0, 1, 2, 3, 4].map((i) => (
+                          <View
+                            key={i}
+                            style={[
+                              styles.strengthSegment,
+                              {
+                                backgroundColor: i <= strength.score ? strengthColors[strength.score] : colors.border,
+                              },
+                            ]}
+                          />
+                        ))}
+                      </View>
+                      <Text style={[styles.strengthLabel, { color: strengthColors[strength.score] }]}>
+                        {strength.label} · {strength.entropy} bits entropy
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
+
+                <View style={styles.inputGroup}>
+                  <Text style={[styles.label, { color: colors.textSecondary }]}>Confirm Password</Text>
+                  <TextInput
+                    style={[styles.input, { backgroundColor: colors.inputBg, color: colors.text, borderColor: colors.border }]}
+                    placeholder="Confirm your master password"
+                    placeholderTextColor={colors.placeholder}
+                    value={confirmPassword}
+                    onChangeText={setConfirmPassword}
+                    secureTextEntry
+                  />
+                </View>
+
+                {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+                <TouchableOpacity
+                  style={[styles.primaryButton, { backgroundColor: colors.accent, opacity: loading ? 0.7 : 1 }]}
+                  onPress={handleSignUp}
+                  disabled={loading}
+                  activeOpacity={0.8}
+                >
+                  {loading ? (
+                    <ActivityIndicator color="#1F2228" />
+                  ) : (
+                    <Text style={[styles.primaryButtonText, { color: colors.btnText }]}>Create Secure Vault</Text>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity onPress={() => router.push('/(auth)/login')} style={styles.linkContainer}>
+                  <Text style={[styles.linkText, { color: colors.textSecondary }]}>
+                    Already have an account? <Text style={{ color: colors.accent, fontWeight: '700' }}>Sign in</Text>
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={[styles.label, { color: colors.textSecondary }]}>Confirm Password</Text>
-              <TextInput
-                style={[styles.input, { backgroundColor: colors.inputBg, color: colors.text, borderColor: colors.border }]}
-                placeholder="Confirm your master password"
-                placeholderTextColor={colors.placeholder}
-                value={confirmPassword}
-                onChangeText={setConfirmPassword}
-                secureTextEntry
-              />
-            </View>
-
-            {error ? <Text style={styles.errorText}>{error}</Text> : null}
-
-            <TouchableOpacity
-              style={[styles.primaryButton, { backgroundColor: colors.accent, opacity: loading ? 0.7 : 1 }]}
-              onPress={handleSignUp}
-              disabled={loading}
-              activeOpacity={0.8}
-            >
-              {loading ? (
-                <ActivityIndicator color="#1F2228" />
-              ) : (
-                <Text style={[styles.primaryButtonText, { color: colors.btnText }]}>Create Secure Vault</Text>
-              )}
-            </TouchableOpacity>
-
-            <TouchableOpacity onPress={() => router.push('/(auth)/login')} style={styles.linkContainer}>
-              <Text style={[styles.linkText, { color: colors.textSecondary }]}>
-                Already have an account? <Text style={{ color: colors.accent, fontWeight: '700' }}>Sign in</Text>
-              </Text>
-            </TouchableOpacity>
           </View>
-        </View>
+        </TouchableWithoutFeedback>
       </ScrollView>
     </KeyboardAvoidingView>
   );

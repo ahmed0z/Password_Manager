@@ -10,6 +10,8 @@ import {
   Platform,
   ScrollView,
   ActivityIndicator,
+  TouchableWithoutFeedback,
+  Keyboard,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { signIn, uint8ArrayToBase64 } from '@vaultsync/core';
@@ -49,85 +51,93 @@ export default function LoginScreen() {
   return (
     <KeyboardAvoidingView
       style={[styles.container, { backgroundColor: colors.bg }]}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-        {/* Card Frame */}
-        <View style={[styles.loginCard, { backgroundColor: colors.cardBg }]}>
-          {/* Logo */}
-          <View style={styles.logoContainer}>
-            <View style={[styles.logoIcon, { backgroundColor: colors.accent }]}>
-              <Text style={styles.logoEmoji}>🔐</Text>
-            </View>
-            <Text style={[styles.logoTitle, { color: colors.text }]}>VaultSync</Text>
-            <Text style={[styles.logoSubtitle, { color: colors.textSecondary }]}>
-              Zero-Knowledge Password Manager
-            </Text>
-          </View>
+      <ScrollView 
+        contentContainerStyle={styles.scrollContent} 
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+      >
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <View style={{ flex: 1, width: '100%', justifyContent: 'center' }}>
+            {/* Card Frame */}
+            <View style={[styles.loginCard, { backgroundColor: colors.cardBg }]}>
+              {/* Logo */}
+              <View style={styles.logoContainer}>
+                <View style={[styles.logoIcon, { backgroundColor: colors.accent }]}>
+                  <Text style={styles.logoEmoji}>🔐</Text>
+                </View>
+                <Text style={[styles.logoTitle, { color: colors.text }]}>VaultSync</Text>
+                <Text style={[styles.logoSubtitle, { color: colors.textSecondary }]}>
+                  Zero-Knowledge Password Manager
+                </Text>
+              </View>
 
-          {/* Form */}
-          <View style={styles.form}>
-            <View style={styles.inputGroup}>
-              <Text style={[styles.label, { color: colors.textSecondary }]}>Email Address</Text>
-              <TextInput
-                style={[styles.input, { backgroundColor: colors.inputBg, color: colors.text, borderColor: colors.border }]}
-                placeholder="you@example.com"
-                placeholderTextColor={colors.placeholder}
-                value={email}
-                onChangeText={setEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoComplete="email"
-              />
-            </View>
+              {/* Form */}
+              <View style={styles.form}>
+                <View style={styles.inputGroup}>
+                  <Text style={[styles.label, { color: colors.textSecondary }]}>Email Address</Text>
+                  <TextInput
+                    style={[styles.input, { backgroundColor: colors.inputBg, color: colors.text, borderColor: colors.border }]}
+                    placeholder="you@example.com"
+                    placeholderTextColor={colors.placeholder}
+                    value={email}
+                    onChangeText={setEmail}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    autoComplete="email"
+                  />
+                </View>
 
-            <View style={styles.inputGroup}>
-              <Text style={[styles.label, { color: colors.textSecondary }]}>Master Password</Text>
-              <View style={styles.passwordContainer}>
-                <TextInput
-                  style={[styles.input, styles.passwordInput, { backgroundColor: colors.inputBg, color: colors.text, borderColor: colors.border }]}
-                  placeholder="Enter master password"
-                  placeholderTextColor={colors.placeholder}
-                  value={masterPassword}
-                  onChangeText={setMasterPassword}
-                  secureTextEntry={!showPassword}
-                />
+                <View style={styles.inputGroup}>
+                  <Text style={[styles.label, { color: colors.textSecondary }]}>Master Password</Text>
+                  <View style={styles.passwordContainer}>
+                    <TextInput
+                      style={[styles.input, styles.passwordInput, { backgroundColor: colors.inputBg, color: colors.text, borderColor: colors.border }]}
+                      placeholder="Enter master password"
+                      placeholderTextColor={colors.placeholder}
+                      value={masterPassword}
+                      onChangeText={setMasterPassword}
+                      secureTextEntry={!showPassword}
+                    />
+                    <TouchableOpacity
+                      style={styles.eyeButton}
+                      onPress={() => setShowPassword(!showPassword)}
+                    >
+                      <Text style={{ color: colors.textSecondary, fontSize: 16 }}>
+                        {showPassword ? '👁️‍🗨️' : '👁️'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                {error ? (
+                  <Text style={styles.errorText}>{error}</Text>
+                ) : null}
+
                 <TouchableOpacity
-                  style={styles.eyeButton}
-                  onPress={() => setShowPassword(!showPassword)}
+                  style={[styles.primaryButton, { backgroundColor: colors.accent, opacity: loading ? 0.7 : 1 }]}
+                  onPress={handleLogin}
+                  disabled={loading}
+                  activeOpacity={0.8}
                 >
-                  <Text style={{ color: colors.textSecondary, fontSize: 16 }}>
-                    {showPassword ? '👁️‍🗨️' : '👁️'}
+                  {loading ? (
+                    <ActivityIndicator color="#1F2228" />
+                  ) : (
+                    <Text style={[styles.primaryButtonText, { color: colors.btnText }]}>Unlock Vault</Text>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity onPress={() => router.push('/(auth)/signup')} style={styles.linkContainer}>
+                  <Text style={[styles.linkText, { color: colors.textSecondary }]}>
+                    Don't have an account?{' '}
+                    <Text style={{ color: colors.accent, fontWeight: '700' }}>Create one</Text>
                   </Text>
                 </TouchableOpacity>
               </View>
             </View>
-
-            {error ? (
-              <Text style={styles.errorText}>{error}</Text>
-            ) : null}
-
-            <TouchableOpacity
-              style={[styles.primaryButton, { backgroundColor: colors.accent, opacity: loading ? 0.7 : 1 }]}
-              onPress={handleLogin}
-              disabled={loading}
-              activeOpacity={0.8}
-            >
-              {loading ? (
-                <ActivityIndicator color="#1F2228" />
-              ) : (
-                <Text style={[styles.primaryButtonText, { color: colors.btnText }]}>Unlock Vault</Text>
-              )}
-            </TouchableOpacity>
-
-            <TouchableOpacity onPress={() => router.push('/(auth)/signup')} style={styles.linkContainer}>
-              <Text style={[styles.linkText, { color: colors.textSecondary }]}>
-                Don't have an account?{' '}
-                <Text style={{ color: colors.accent, fontWeight: '700' }}>Create one</Text>
-              </Text>
-            </TouchableOpacity>
           </View>
-        </View>
+        </TouchableWithoutFeedback>
       </ScrollView>
     </KeyboardAvoidingView>
   );

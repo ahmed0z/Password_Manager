@@ -6,13 +6,13 @@ import {
   StyleSheet,
   Image,
   Dimensions,
-  Modal,
   Platform,
   TouchableWithoutFeedback,
   ScrollView,
   PanResponder,
   Animated,
   Keyboard,
+  BackHandler,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path, Circle } from 'react-native-svg';
@@ -362,8 +362,12 @@ export function FloatingPanel({ visible, onClose, title, children }: FloatingPan
 
   const animatedTranslateY = React.useRef(new Animated.Value(CLOSED_TRANSLATION)).current;
   const [isExpanded, setIsExpanded] = React.useState(false);
-  const lastTranslation = React.useRef(COLLAPSED_TRANSLATION);
+  const lastTranslation = React.useRef(CLOSED_TRANSLATION);
   const [keyboardHeight, setKeyboardHeight] = React.useState(0);
+  const [isKeyboardVisible, setIsKeyboardVisible] = React.useState(false);
+  const scrollOffset = React.useRef(0);
+
+  const [shouldRender, setShouldRender] = React.useState(visible);
 
   const animateTo = (targetTranslateY: number, expand: boolean, callback?: () => void) => {
     const isClosing = targetTranslateY === CLOSED_TRANSLATION;
@@ -371,7 +375,7 @@ export function FloatingPanel({ visible, onClose, title, children }: FloatingPan
     if (isClosing) {
       Animated.timing(animatedTranslateY, {
         toValue: targetTranslateY,
-        duration: 200,
+        duration: 150,
         useNativeDriver: true,
       }).start(() => {
         setIsExpanded(expand);
@@ -383,7 +387,7 @@ export function FloatingPanel({ visible, onClose, title, children }: FloatingPan
         toValue: targetTranslateY,
         useNativeDriver: true,
         friction: 8,
-        tension: 50,
+        tension: 65,
       }).start(() => {
         setIsExpanded(expand);
         lastTranslation.current = targetTranslateY;
@@ -394,9 +398,16 @@ export function FloatingPanel({ visible, onClose, title, children }: FloatingPan
 
   React.useEffect(() => {
     if (visible) {
+      setShouldRender(true);
       animatedTranslateY.setValue(CLOSED_TRANSLATION);
       lastTranslation.current = CLOSED_TRANSLATION;
       animateTo(COLLAPSED_TRANSLATION, false);
+    } else {
+      if (shouldRender) {
+        animateTo(CLOSED_TRANSLATION, false, () => {
+          setShouldRender(false);
+        });
+      }
     }
   }, [visible]);
 
@@ -405,6 +416,7 @@ export function FloatingPanel({ visible, onClose, title, children }: FloatingPan
       Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
       (e) => {
         setKeyboardHeight(e.endCoordinates.height);
+        setIsKeyboardVisible(true);
         animateTo(EXPANDED_TRANSLATION, true);
       }
     );
@@ -412,6 +424,7 @@ export function FloatingPanel({ visible, onClose, title, children }: FloatingPan
       Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
       () => {
         setKeyboardHeight(0);
+        setIsKeyboardVisible(false);
       }
     );
     return () => {
@@ -421,13 +434,57 @@ export function FloatingPanel({ visible, onClose, title, children }: FloatingPan
   }, []);
 
   const handleClose = () => {
-    animateTo(CLOSED_TRANSLATION, false, onClose);
+    animateTo(CLOSED_TRANSLATION, false, () => {
+      setShouldRender(false);
+      if (onClose) onClose();
+    });
+  };
+
+  // Native hardware back button handling on Android
+  React.useEffect(() => {
+    if (visible) {
+      const onBackPress = () => {
+        if (isKeyboardVisible) {
+          Keyboard.dismiss();
+          return true;
+        }
+        handleClose();
+        return true;
+      };
+
+      const subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+      return () => {
+        subscription.remove();
+      };
+    }
+  }, [visible, isKeyboardVisible]);
+
+  const handleScroll = (event: any) => {
+    scrollOffset.current = event.nativeEvent.contentOffset.y;
   };
 
   const panResponder = React.useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponder: () => false,
+      onStartShouldSetPanResponderCapture: () => false,
+      onMoveShouldSetPanResponder: (evt, gestureState) => {
+        const { dy } = gestureState;
+        if (Math.abs(dy) < 5) return false;
+        
+        if (!isExpanded) return true;
+        if (isExpanded && dy > 0 && scrollOffset.current <= 0) return true;
+        
+        return false;
+      },
+      onMoveShouldSetPanResponderCapture: (evt, gestureState) => {
+        const { dy } = gestureState;
+        if (Math.abs(dy) < 5) return false;
+        
+        if (!isExpanded) return true;
+        if (isExpanded && dy > 0 && scrollOffset.current <= 0) return true;
+        
+        return false;
+      },
       onPanResponderGrant: () => {
         animatedTranslateY.stopAnimation((value) => {
           lastTranslation.current = value;
@@ -451,7 +508,9 @@ export function FloatingPanel({ visible, onClose, title, children }: FloatingPan
         if (gestureState.dy < -threshold) {
           animateTo(EXPANDED_TRANSLATION, true);
         } else if (gestureState.dy > threshold) {
-          if (gestureState.dy > 120 && !isExpanded) {
+          if (gestureState.dy > 220) {
+            handleClose();
+          } else if (gestureState.dy > 100 && !isExpanded) {
             handleClose();
           } else {
             animateTo(COLLAPSED_TRANSLATION, false);
@@ -464,49 +523,57 @@ export function FloatingPanel({ visible, onClose, title, children }: FloatingPan
     })
   ).current;
 
+  if (!shouldRender) {
+    return null;
+  }
+
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="none"
-      onRequestClose={handleClose}
-    >
+    <View style={[StyleSheet.absoluteFill, { zIndex: 1000 }]}>
+      {/* Background Dim Overlay */}
       <TouchableWithoutFeedback onPress={handleClose}>
-        <View style={styles.panelOverlay}>
-          <TouchableWithoutFeedback>
-            <Animated.View style={[
-              styles.panelContent, 
-              { 
-                height: screenHeight,
-                transform: [{ translateY: animatedTranslateY }] 
-              }
-            ]}>
-              {/* Drag Handle */}
-              <View style={styles.dragHandleContainer} {...panResponder.panHandlers}>
-                <View style={styles.dragHandle} />
-              </View>
-
-              {/* Header */}
-              <View style={styles.panelHeader}>
-                <Text style={styles.panelTitle}>{title}</Text>
-                <TouchableOpacity onPress={handleClose} style={styles.panelCloseBtn}>
-                  <Text style={styles.panelCloseText}>✕</Text>
-                </TouchableOpacity>
-              </View>
-
-              <ScrollView 
-                style={{ flex: 1 }}
-                contentContainerStyle={[styles.panelScroll, { paddingBottom: insets.bottom + 120 + keyboardHeight }]}
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
-              >
-                {children}
-              </ScrollView>
-            </Animated.View>
-          </TouchableWithoutFeedback>
-        </View>
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(23, 24, 25, 0.75)' }]} />
       </TouchableWithoutFeedback>
-    </Modal>
+
+      {/* Sliding Sheet Panel */}
+      <Animated.View 
+        style={[
+          styles.panelContent, 
+          { 
+            height: screenHeight,
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            bottom: 0,
+            transform: [{ translateY: animatedTranslateY }] 
+          }
+        ]}
+        {...panResponder.panHandlers}
+      >
+        {/* Drag Handle */}
+        <View style={styles.dragHandleContainer}>
+          <View style={styles.dragHandle} />
+        </View>
+
+        {/* Header */}
+        <View style={styles.panelHeader}>
+          <Text style={styles.panelTitle}>{title}</Text>
+          <TouchableOpacity onPress={handleClose} style={styles.panelCloseBtn}>
+            <Text style={styles.panelCloseText}>✕</Text>
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView 
+          style={{ flex: 1 }}
+          contentContainerStyle={[styles.panelScroll, { paddingBottom: insets.bottom + 120 + keyboardHeight }]}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
+        >
+          {children}
+        </ScrollView>
+      </Animated.View>
+    </View>
   );
 }
 

@@ -4,6 +4,19 @@ All notable changes to the VaultSync password manager project are documented in 
 
 ---
 
+## [v1.1.0] - 2026-06-20
+
+### Added
+- **Keyboard Auto-Dismiss on Mobile**: Added dismiss-on-tap-outside wrappers and scroll-to-dismiss behavior (`keyboardDismissMode="on-drag"`) in login and sign-up screen inputs, ensuring easy keyboard dismissal.
+- **FlatList Optimization**: Replaced heavy nested ScrollView mapped listings on the vault page with virtualized `<FlatList>` components for logins and bookmarks. Improves list rendering performance, tab switching latency, and removes scroll delay.
+
+### Fixed
+- **Overlay Rendering Block**: Resolved a bug in the bottom sheet `FloatingPanel` absolute overlay that left a transparent black backdrop layer blocking mouse clicks and views on settings and vault screens when visible was false. Coordinates renders via `shouldRender` state variable.
+- **BottomSheet Gestures Isolation**: Structured the dim overlay and sliding credentials panel as sibling views instead of nested touchables, restoring custom dragging and scrolling sheet gestures from any area of the panel card.
+- **BackHandler Android Compilation**: Replaced the deprecated `BackHandler.removeEventListener` method call with the subscription object `.remove()` pattern in `SharedComponents.tsx` to fix TypeScript compiler failures.
+
+---
+
 ## [v1.0.9] - 2026-06-19
 
 ### Added

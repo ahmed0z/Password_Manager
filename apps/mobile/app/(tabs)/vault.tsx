@@ -34,6 +34,10 @@ type BookmarkWithDecrypted = Bookmark & { decrypted: DecryptedBookmark };
 type SubTab = 'Logins' | 'Bookmarks';
 type StrengthFilter = 'all' | 'weak' | 'reused' | 'strong';
 
+const isLoginItem = (item: any): item is VaultItemWithDecrypted => {
+  return item && item.decrypted && 'password' in item.decrypted;
+};
+
 export default function VaultScreen() {
   const router = useRouter();
   const isDark = useColorScheme() === 'dark';
@@ -622,62 +626,88 @@ export default function VaultScreen() {
     );
   };
 
-  if (loading) {
+  const renderItem = useCallback(({ item }: { item: any }) => {
+    if (isLoginItem(item)) {
+      const score = estimateStrength(item.decrypted.password).score;
+      const isWeak = score <= 1;
+      const isMedium = score === 2 || score === 3;
+      const statusStr = isWeak ? 'Weak' : (isMedium ? 'Medium' : 'Strong');
+
+      const folderName = folders.find(f => f.id === item.folder_id)?.name || 'Root';
+
+      return (
+        <ListCard
+          key={item.id}
+          title={item.decrypted.title}
+          subtitle={item.decrypted.username}
+          favicon={item.domain ? getFaviconUrl(item.domain) : undefined}
+          statusLabel={statusStr}
+          selected={selectedItem?.id === item.id}
+          metaColumns={[
+            { label: 'Category', value: folderName },
+            { label: 'Last Used', value: 'Recent' },
+            { label: 'Strength', value: statusStr }
+          ]}
+          checked={item.is_favorite}
+          onToggleCheck={async () => {
+            try {
+              const key = await getVaultKey();
+              if (!key) return;
+              await updateVaultItem(item.id, {
+                title: item.decrypted.title,
+                username: item.decrypted.username,
+                password: item.decrypted.password,
+                url: item.decrypted.url,
+                notes: item.decrypted.notes,
+                folderId: item.folder_id || undefined,
+                isFavorite: !item.is_favorite
+              }, item.decrypted, key);
+              await loadData();
+            } catch (e) {
+              console.warn(e);
+            }
+          }}
+          onPress={() => {
+            setIsDetailPasswordVisible(false);
+            setSelectedItem(item);
+          }}
+        />
+      );
+    } else {
+      let domain = item.decrypted.url || '';
+      const protoIdx = domain.indexOf('://');
+      if (protoIdx !== -1) {
+        domain = domain.substring(protoIdx + 3);
+      }
+      const slashIdx = domain.indexOf('/');
+      if (slashIdx !== -1) {
+        domain = domain.substring(0, slashIdx);
+      }
+      if (domain.startsWith('www.')) {
+        domain = domain.substring(4);
+      }
+      
+      return (
+        <ListCard
+          key={item.id}
+          title={item.decrypted.title}
+          subtitle={domain}
+          favicon={item.decrypted.favicon}
+          metaColumns={[
+            { label: 'Folder Path', value: item.decrypted.folderPath || 'Root' },
+            { label: 'URL Address', value: item.decrypted.url }
+          ]}
+          onPress={() => {
+            Linking.openURL(item.decrypted.url.startsWith('http') ? item.decrypted.url : `https://${item.decrypted.url}`);
+          }}
+        />
+      );
+    }
+  }, [folders, selectedItem, getVaultKey, loadData]);
+
+  const renderHeader = useCallback(() => {
     return (
-      <View style={[styles.center, { backgroundColor: colors.bgPrimary }]}>
-        <ActivityIndicator size="large" color={colors.accentPrimary} />
-      </View>
-    );
-  }
-
-  return (
-    <View style={[styles.container, { backgroundColor: colors.bgPrimary }]}>
-      {/* Top Navbar */}
-      <View style={styles.header}>
-        {!isSearchOpen ? (
-          <>
-            <CircularIconButton onPress={() => router.replace('/(tabs)/settings')}>
-              <Sliders size={18} color="#1F2228" />
-            </CircularIconButton>
-            
-            <Text style={styles.headerTitle}>{activeSubTab}</Text>
-            
-            <View style={{ flexDirection: 'row', gap: 8 }}>
-              <CircularIconButton onPress={() => setIsSearchOpen(true)}>
-                <Search size={18} color="#1F2228" />
-              </CircularIconButton>
-              {activeSubTab === 'Logins' ? (
-                <CircularIconButton onPress={() => setIsAddPasswordVisible(true)}>
-                  <Plus size={18} color="#1F2228" />
-                </CircularIconButton>
-              ) : (
-                <CircularIconButton onPress={handleSmartSync}>
-                  <BookmarkIcon size={18} color="#1F2228" />
-                </CircularIconButton>
-              )}
-            </View>
-          </>
-        ) : (
-          <View style={styles.searchBarContainer}>
-            <TextInput
-              style={[styles.searchInput, { flex: 1, backgroundColor: 'rgba(23, 24, 25, 0.2)', color: '#FFFFFF', borderColor: colors.surfaceBorder }]}
-              placeholder={activeSubTab === 'Bookmarks' ? 'Search bookmarks...' : 'Search logins...'}
-              placeholderTextColor="rgba(255,255,255,0.4)"
-              value={search}
-              onChangeText={setSearch}
-              autoFocus
-            />
-            <TouchableOpacity
-              style={[styles.searchCloseBtn, { backgroundColor: 'rgba(239,68,68,0.1)' }]}
-              onPress={() => { setIsSearchOpen(false); setSearch(''); }}
-            >
-              <Text style={{ color: '#EF4444', fontWeight: '700' }}>✕</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-      </View>
-
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <View style={{ marginBottom: 12 }}>
         {/* PillTab selector for Logins / Bookmarks */}
         <PillTab
           tabs={['Logins', 'Bookmarks']}
@@ -689,11 +719,8 @@ export default function VaultScreen() {
           }}
         />
 
-        {/* ========================================== */}
-        {/* LOGINS SUBTAB */}
-        {/* ========================================== */}
-        <View style={{ display: activeSubTab === 'Logins' ? 'flex' : 'none' }}>
-          <View>
+        {activeSubTab === 'Logins' ? (
+          <View style={{ marginTop: 16 }}>
             {/* Stat Capsules Horizontal Bar */}
             <ScrollView
               horizontal
@@ -795,74 +822,9 @@ export default function VaultScreen() {
                 </TouchableOpacity>
               </View>
             )}
-
-            {/* Logins Cards list */}
-            {filteredLogins.length === 0 ? (
-              <View style={styles.emptyState}>
-                <Text style={{ fontSize: 48, marginBottom: 16 }}>🔐</Text>
-                <Text style={styles.emptyTitle}>No passwords yet</Text>
-                <Text style={styles.emptySubtitle}>
-                  Add passwords from the header button or sync from the extension.
-                </Text>
-              </View>
-            ) : (
-              filteredLogins.map((item) => {
-                const score = estimateStrength(item.decrypted.password).score;
-                const isWeak = score <= 1;
-                const isMedium = score === 2 || score === 3;
-                const statusStr = isWeak ? 'Weak' : (isMedium ? 'Medium' : 'Strong');
-
-                const folderName = folders.find(f => f.id === item.folder_id)?.name || 'Root';
-
-                return (
-                  <ListCard
-                    key={item.id}
-                    title={item.decrypted.title}
-                    subtitle={item.decrypted.username}
-                    favicon={item.domain ? getFaviconUrl(item.domain) : undefined}
-                    statusLabel={statusStr}
-                    selected={selectedItem?.id === item.id}
-                    metaColumns={[
-                      { label: 'Category', value: folderName },
-                      { label: 'Last Used', value: 'Recent' },
-                      { label: 'Strength', value: statusStr }
-                    ]}
-                    checked={item.is_favorite}
-                    onToggleCheck={async () => {
-                      // Favorite toggle logic
-                      try {
-                        const key = await getVaultKey();
-                        if (!key) return;
-                        await updateVaultItem(item.id, {
-                          title: item.decrypted.title,
-                          username: item.decrypted.username,
-                          password: item.decrypted.password,
-                          url: item.decrypted.url,
-                          notes: item.decrypted.notes,
-                          folderId: item.folder_id || undefined,
-                          isFavorite: !item.is_favorite
-                        }, item.decrypted, key);
-                        await loadData();
-                      } catch (e) {
-                        console.warn(e);
-                      }
-                    }}
-                    onPress={() => {
-                      setIsDetailPasswordVisible(false);
-                      setSelectedItem(item);
-                    }}
-                  />
-                );
-              })
-            )}
           </View>
-        </View>
-
-        {/* ========================================== */}
-        {/* BOOKMARKS SUBTAB */}
-        {/* ========================================== */}
-        <View style={{ display: activeSubTab === 'Bookmarks' ? 'flex' : 'none' }}>
-          <View>
+        ) : (
+          <View style={{ marginTop: 16 }}>
             {/* Folders Card for Bookmarks */}
             <View style={styles.folderCard}>
               <View style={styles.folderCardHeader}>
@@ -931,54 +893,119 @@ export default function VaultScreen() {
                 </TouchableOpacity>
               </View>
             )}
-
-            {/* Bookmarks Grid / List */}
-            {filteredBookmarks.length === 0 ? (
-              <View style={styles.emptyState}>
-                <Text style={{ fontSize: 48, marginBottom: 16 }}>📚</Text>
-                <Text style={styles.emptyTitle}>No bookmarks</Text>
-                <Text style={styles.emptySubtitle}>
-                  Smart Sync browser bookmarks from Chrome extension.
-                </Text>
-              </View>
-            ) : (
-              filteredBookmarks.map((b) => {
-              let domain = b.decrypted.url || '';
-              const protoIdx = domain.indexOf('://');
-              if (protoIdx !== -1) {
-                domain = domain.substring(protoIdx + 3);
-              }
-              const slashIdx = domain.indexOf('/');
-              if (slashIdx !== -1) {
-                domain = domain.substring(0, slashIdx);
-              }
-              if (domain.startsWith('www.')) {
-                domain = domain.substring(4);
-              }
-              
-              return (
-                <ListCard
-                  key={b.id}
-                  title={b.decrypted.title}
-                  subtitle={domain}
-                  favicon={b.decrypted.favicon}
-                  metaColumns={[
-                      { label: 'Folder Path', value: b.decrypted.folderPath || 'Root' },
-                      { label: 'URL Address', value: b.decrypted.url }
-                    ]}
-                    onPress={() => {
-                      Linking.openURL(b.decrypted.url.startsWith('http') ? b.decrypted.url : `https://${b.decrypted.url}`);
-                    }}
-                  />
-                );
-              })
-            )}
           </View>
-        </View>
+        )}
+      </View>
+    );
+  }, [
+    activeSubTab,
+    items.length,
+    strengthFilter,
+    weakCount,
+    reusedCount,
+    strongCount,
+    isFoldersCollapsed,
+    selectedFolderId,
+    folders,
+    folderTree,
+    isBookmarkFoldersCollapsed,
+    selectedFolderPath,
+    bookmarkFolderTree,
+  ]);
 
-        {/* Padding offset at the bottom to avoid overlapping with bottom bar navigation */}
-        <View style={{ height: 100 }} />
-      </ScrollView>
+  const renderEmpty = useCallback(() => {
+    if (activeSubTab === 'Logins') {
+      return (
+        <View style={styles.emptyState}>
+          <Text style={{ fontSize: 48, marginBottom: 16 }}>🔐</Text>
+          <Text style={styles.emptyTitle}>No passwords yet</Text>
+          <Text style={styles.emptySubtitle}>
+            Add passwords from the header button or sync from the extension.
+          </Text>
+        </View>
+      );
+    } else {
+      return (
+        <View style={styles.emptyState}>
+          <Text style={{ fontSize: 48, marginBottom: 16 }}>📚</Text>
+          <Text style={styles.emptyTitle}>No bookmarks</Text>
+          <Text style={styles.emptySubtitle}>
+            Smart Sync browser bookmarks from Chrome extension.
+          </Text>
+        </View>
+      );
+    }
+  }, [activeSubTab]);
+
+  const renderFooter = useCallback(() => {
+    return <View style={{ height: 100 }} />;
+  }, []);
+
+  if (loading) {
+    return (
+      <View style={[styles.center, { backgroundColor: colors.bgPrimary }]}>
+        <ActivityIndicator size="large" color={colors.accentPrimary} />
+      </View>
+    );
+  }
+
+  return (
+    <View style={[styles.container, { backgroundColor: colors.bgPrimary }]}>
+      {/* Top Navbar */}
+      <View style={styles.header}>
+        {!isSearchOpen ? (
+          <>
+            <CircularIconButton onPress={() => router.replace('/(tabs)/settings')}>
+              <Sliders size={18} color="#1F2228" />
+            </CircularIconButton>
+            
+            <Text style={styles.headerTitle}>{activeSubTab}</Text>
+            
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <CircularIconButton onPress={() => setIsSearchOpen(true)}>
+                <Search size={18} color="#1F2228" />
+              </CircularIconButton>
+              {activeSubTab === 'Logins' ? (
+                <CircularIconButton onPress={() => setIsAddPasswordVisible(true)}>
+                  <Plus size={18} color="#1F2228" />
+                </CircularIconButton>
+              ) : (
+                <CircularIconButton onPress={handleSmartSync}>
+                  <BookmarkIcon size={18} color="#1F2228" />
+                </CircularIconButton>
+              )}
+            </View>
+          </>
+        ) : (
+          <View style={styles.searchBarContainer}>
+            <TextInput
+              style={[styles.searchInput, { flex: 1, backgroundColor: 'rgba(23, 24, 25, 0.2)', color: '#FFFFFF', borderColor: colors.surfaceBorder }]}
+              placeholder={activeSubTab === 'Bookmarks' ? 'Search bookmarks...' : 'Search logins...'}
+              placeholderTextColor="rgba(255,255,255,0.4)"
+              value={search}
+              onChangeText={setSearch}
+              autoFocus
+            />
+            <TouchableOpacity
+              style={[styles.searchCloseBtn, { backgroundColor: 'rgba(239,68,68,0.1)' }]}
+              onPress={() => { setIsSearchOpen(false); setSearch(''); }}
+            >
+              <Text style={{ color: '#EF4444', fontWeight: '700' }}>✕</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
+
+      <FlatList
+        data={activeSubTab === 'Logins' ? filteredLogins : filteredBookmarks}
+        keyExtractor={(item) => item.id}
+        renderItem={renderItem}
+        ListHeaderComponent={renderHeader}
+        ListFooterComponent={renderFooter}
+        ListEmptyComponent={renderEmpty}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      />
 
       {/* ========================================== */}
       {/* ADD PASSWORD FLOATING PANEL */}
