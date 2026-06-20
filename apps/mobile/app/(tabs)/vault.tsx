@@ -47,6 +47,7 @@ export default function VaultScreen() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Vault/Logins State
   const [items, setItems] = useState<VaultItemWithDecrypted[]>([]);
@@ -110,16 +111,17 @@ export default function VaultScreen() {
       const key = await getVaultKey();
       if (!key) { router.replace('/(auth)/login'); return; }
       
-      // Load logins and folders
-      const data = await getVaultItems(key);
-      setItems(data);
+      // Load logins, folders, bookmarks, and stored empty folders in parallel for fast refresh
+      const [data, folderData, bData, storedEmpty] = await Promise.all([
+        getVaultItems(key),
+        getFolders(key),
+        getBookmarks(key),
+        SecureStore.getItemAsync('vaultsync-empty-bookmark-folders')
+      ]);
 
-      const folderData = await getFolders(key);
+      setItems(data);
       setFolders(folderData);
       setFolderTree(buildFolderTree(folderData));
-
-      // Load bookmarks
-      const bData = await getBookmarks(key);
       setBookmarks(bData);
 
       const paths = new Set<string>();
@@ -128,7 +130,6 @@ export default function VaultScreen() {
           paths.add(b.decrypted.folderPath);
         }
       });
-      const storedEmpty = await SecureStore.getItemAsync('vaultsync-empty-bookmark-folders');
       if (storedEmpty) {
         try {
           const emptyList: string[] = JSON.parse(storedEmpty);
@@ -145,6 +146,12 @@ export default function VaultScreen() {
       setLoading(false);
     }
   }, [getVaultKey, router]);
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadData();
+    setRefreshing(false);
+  }, [loadData]);
 
   useEffect(() => {
     loadData();
@@ -1005,6 +1012,8 @@ export default function VaultScreen() {
         ListEmptyComponent={renderEmpty}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        refreshing={refreshing}
+        onRefresh={handleRefresh}
       />
 
       {/* ========================================== */}

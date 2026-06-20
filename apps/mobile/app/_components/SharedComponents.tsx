@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path, Circle } from 'react-native-svg';
+import { Star } from 'lucide-react-native';
 
 // Local theme tokens (matching shared colors)
 export const colors = {
@@ -242,9 +243,24 @@ export function ListCard({
           </Text>
         </View>
 
-        {statusLabel && (
-          <StatusBadge label={statusLabel} />
-        )}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          {statusLabel && (
+            <StatusBadge label={statusLabel} />
+          )}
+          {onToggleCheck && (
+            <TouchableOpacity 
+              onPress={onToggleCheck} 
+              style={{ padding: 6 }}
+              activeOpacity={0.7}
+            >
+              <Star 
+                size={18} 
+                color={checked ? '#F4E11A' : (selected ? '#6B7280' : colors.textSecondary)} 
+                fill={checked ? '#F4E11A' : 'none'} 
+              />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       {metaColumns && metaColumns.length > 0 && (
@@ -255,13 +271,6 @@ export function ListCard({
               <Text style={[styles.metaValue, { color: textColor }]} numberOfLines={1}>{col.value}</Text>
             </View>
           ))}
-        </View>
-      )}
-
-      {onToggleCheck && (
-        <View style={[styles.cardFooter, selected && { borderTopColor: 'rgba(0,0,0,0.06)' }]}>
-          <Text style={[styles.footerText, selected && { color: '#6B7280' }]}>Synced</Text>
-          <Checkbox checked={checked} onPress={onToggleCheck} />
         </View>
       )}
     </TouchableOpacity>
