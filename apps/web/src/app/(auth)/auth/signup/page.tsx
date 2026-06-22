@@ -22,7 +22,7 @@ export default function SignUpPage() {
       const session = await getSession();
       const hasKey = localStorage.getItem('vaultsync-vault-key');
       if (session && hasKey) {
-        router.replace('/vault');
+        router.replace('/overview');
       }
     };
     checkActiveSession();
@@ -70,7 +70,7 @@ export default function SignUpPage() {
       localStorage.setItem('vaultsync-vault-key', keyBase64);
       localStorage.setItem('vaultsync-vault-salt', vaultKey.salt);
 
-      router.push('/vault');
+      router.push('/overview');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sign-up failed. Please try again.');
     } finally {

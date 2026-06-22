@@ -2,6 +2,15 @@
 
 All notable changes to the VaultSync password manager project are documented in this file.
 
+## [v1.2.0] - 2026-06-23
+
+### Added
+- **Zero-Flicker Native Sidebar Resize**: Restored standard horizontal resizing for the web app folders sidebar. The width is persisted dynamically via cookies (`vaultsync-sidebar-width`) and loaded synchronously before body paint using an inline script in layout `<head>`, preventing layout shifting or flickering.
+- **Glassmorphic Top Navigation Bar**: Configured a translucent background overlay for the top navigation bar (`.top-nav`) matching light/dark theme colors, paired with backdrop blur (`backdrop-filter: blur(12px)`) so content scrolls behind it clearly.
+- **Offset Modal Positioning**: Adjusted modals (like Add Password, Edit Password) to sit directly below the top navigation bar (`top: 74px`) without overlapping. Configured `align-items: flex-start; padding: 24px 16px;` and constrained the max height (`max-height: calc(100vh - 122px)`) to allow internal form scrolling.
+- **Chrome Extension Dismissible Autofill**: Added a functional close dismiss button to the floating credentials bubble rendered by the content script to allow immediate UI dismissal.
+- **Mobile Layout & Build Verification**: Verified clean production compilation across all packages and resolved Expo CLI/Metro resolution configuration alignments.
+
 ---
 
 ## [v1.1.0] - 2026-06-20

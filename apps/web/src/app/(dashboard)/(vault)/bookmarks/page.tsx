@@ -2,8 +2,9 @@
 
 import { useEffect, useState, useCallback, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Bookmark, ExternalLink, Trash2, Search, RefreshCw, Grid, List, Edit, Loader2 } from 'lucide-react';
+import { Bookmark, ExternalLink, Trash2, Search, Grid, List, Edit, Loader2 } from 'lucide-react';
 import { getBookmarks, deleteBookmark, updateBookmark, type Bookmark as BookmarkType, type DecryptedBookmark, base64ToUint8Array } from '@vaultsync/core';
+import FoldersPanel from '../../_components/FoldersPanel';
 
 function BookmarksContent() {
   const searchParams = useSearchParams();
@@ -44,6 +45,23 @@ function BookmarksContent() {
     };
   }, [loadBookmarks]);
 
+  // Persist sidebar width via cookies on resizing completed
+  useEffect(() => {
+    const handleMouseUp = () => {
+      const el = document.querySelector('.page-sidebar-panel');
+      if (el) {
+        const width = el.getBoundingClientRect().width;
+        const widthStr = `${width}px`;
+        document.cookie = `vaultsync-sidebar-width=${widthStr}; path=/; max-age=31536000; SameSite=Lax`;
+        document.documentElement.style.setProperty('--sidebar-width', widthStr);
+      }
+    };
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, []);
+
   const filtered = bookmarks.filter((b) => {
     if (selectedFolderPath) {
       const path = b.decrypted.folderPath || '';
@@ -77,120 +95,128 @@ function BookmarksContent() {
   const subtitle = selectedFolderPath ? `Folder: ${selectedFolderPath}` : `${bookmarks.length} synced bookmarks`;
 
   return (
-    <div>
-      <div className="dashboard-header">
-        <div>
-          <h1 className="dashboard-title">Bookmarks</h1>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
-            {subtitle}
-          </p>
-        </div>
-        <div className="dashboard-actions">
-          <div style={{ display: 'flex', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)', padding: 2 }}>
-            <button
-              className="vs-btn vs-btn-ghost"
-              style={{ padding: '4px 8px', background: viewMode === 'grid' ? 'var(--bg-elevated)' : 'transparent', borderRadius: 'var(--radius-sm)' }}
-              onClick={() => setViewMode('grid')}
-            >
-              <Grid size={14} />
-            </button>
-            <button
-              className="vs-btn vs-btn-ghost"
-              style={{ padding: '4px 8px', background: viewMode === 'list' ? 'var(--bg-elevated)' : 'transparent', borderRadius: 'var(--radius-sm)' }}
-              onClick={() => setViewMode('list')}
-            >
-              <List size={14} />
-            </button>
+    <div className="page-layout-container">
+      <aside className="page-sidebar-panel">
+        <FoldersPanel pathname="/bookmarks" />
+      </aside>
+
+      {/* Main Panel */}
+      <div className="page-main-panel">
+        {/* Header */}
+        <div className="dashboard-header">
+          <div>
+            <h1 className="dashboard-title">Bookmarks</h1>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
+              {subtitle}
+            </p>
           </div>
-        </div>
-      </div>
-
-      <div className="search-container" style={{ marginBottom: 'var(--space-6)', maxWidth: 400 }}>
-        <Search size={16} className="search-icon" />
-        <input
-          type="text"
-          className="vs-input search-input"
-          placeholder="Search bookmarks..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          id="bookmarks-search"
-        />
-      </div>
-
-      {loading ? (
-        <div style={{ display: 'grid', gridTemplateColumns: viewMode === 'grid' ? 'repeat(auto-fill, minmax(280px, 1fr))' : '1fr', gap: 'var(--space-3)' }}>
-          {[1, 2, 3, 4, 5, 6].map((i) => (
-            <div key={i} className="vs-card-static" style={{ padding: 'var(--space-4)' }}>
-              <div className="vs-skeleton" style={{ width: '80%', height: 16, marginBottom: 8 }} />
-              <div className="vs-skeleton" style={{ width: '60%', height: 12 }} />
-            </div>
-          ))}
-        </div>
-      ) : filtered.length === 0 ? (
-        <div className="empty-state">
-          <Bookmark size={64} className="empty-state-icon" />
-          <h2 style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 'var(--space-2)' }}>
-            No bookmarks yet
-          </h2>
-          <p>Use the Chrome extension to sync your browser bookmarks.</p>
-        </div>
-      ) : (
-        Array.from(grouped.entries()).map(([folderPath, items]) => (
-          <div key={folderPath} style={{ marginBottom: 'var(--space-8)' }}>
-            <h3 style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 'var(--space-3)' }}>
-              {folderPath}
-            </h3>
-            <div style={{ display: 'grid', gridTemplateColumns: viewMode === 'grid' ? 'repeat(auto-fill, minmax(280px, 1fr))' : '1fr', gap: 'var(--space-3)' }}>
-              {items.map((b) => (
-                <div key={b.id} className="vs-card" style={{ padding: 'var(--space-4)', display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
-                  <div style={{ width: 32, height: 32, borderRadius: 'var(--radius-sm)', background: 'var(--bg-tertiary)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden' }}>
-                    {(() => {
-                      try {
-                        const domain = new URL(b.decrypted.url).hostname;
-                        const src = b.decrypted.favicon || `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
-                        return <img src={src} alt="" width={20} height={20} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />;
-                      } catch {
-                        return <Bookmark size={16} style={{ color: 'var(--text-tertiary)' }} />;
-                      }
-                    })()}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 500, color: 'var(--text-primary)', fontSize: '0.875rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {b.decrypted.title}
-                    </div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {b.decrypted.url}
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: 'var(--space-1)' }}>
-                    <a href={b.decrypted.url} target="_blank" rel="noopener noreferrer" className="vs-btn vs-btn-ghost" style={{ padding: 4 }}>
-                      <ExternalLink size={14} />
-                    </a>
-                    <button className="vs-btn vs-btn-ghost" style={{ padding: 4 }} onClick={() => startEditing(b)} title="Edit">
-                      <Edit size={14} />
-                    </button>
-                    <button className="vs-btn vs-btn-ghost" style={{ padding: 4, color: 'var(--danger)' }} onClick={() => handleDelete(b.id)} title="Delete">
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                </div>
-              ))}
+          <div className="dashboard-actions">
+            <div style={{ display: 'flex', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)', padding: 2 }}>
+              <button
+                className="vs-btn vs-btn-ghost"
+                style={{ padding: '4px 8px', background: viewMode === 'grid' ? 'var(--bg-elevated)' : 'transparent', borderRadius: 'var(--radius-sm)' }}
+                onClick={() => setViewMode('grid')}
+              >
+                <Grid size={14} />
+              </button>
+              <button
+                className="vs-btn vs-btn-ghost"
+                style={{ padding: '4px 8px', background: viewMode === 'list' ? 'var(--bg-elevated)' : 'transparent', borderRadius: 'var(--radius-sm)' }}
+                onClick={() => setViewMode('list')}
+              >
+                <List size={14} />
+              </button>
             </div>
           </div>
-        ))
-      )}
+        </div>
 
-      {editingBookmark && (
-        <EditBookmarkModal
-          bookmark={editingBookmark}
-          onClose={() => setEditingBookmark(null)}
-          onSaved={() => {
-            setEditingBookmark(null);
-            loadBookmarks();
-          }}
-          getVaultKey={getVaultKey}
-        />
-      )}
+        <div className="search-container" style={{ marginBottom: 'var(--space-6)', maxWidth: 400 }}>
+          <Search size={16} className="search-icon" />
+          <input
+            type="text"
+            className="vs-input search-input"
+            placeholder="Search bookmarks..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            id="bookmarks-search"
+          />
+        </div>
+
+        {loading ? (
+          <div style={{ display: 'grid', gridTemplateColumns: viewMode === 'grid' ? 'repeat(auto-fill, minmax(280px, 1fr))' : '1fr', gap: 'var(--space-3)' }}>
+            {[1, 2, 3, 4, 5, 6].map((i) => (
+              <div key={i} className="vs-card-static" style={{ padding: 'var(--space-4)' }}>
+                <div className="vs-skeleton" style={{ width: '80%', height: 16, marginBottom: 8 }} />
+                <div className="vs-skeleton" style={{ width: '60%', height: 12 }} />
+              </div>
+            ))}
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="empty-state">
+            <Bookmark size={64} className="empty-state-icon" />
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 'var(--space-2)' }}>
+              No bookmarks yet
+            </h2>
+            <p>Use the Chrome extension to sync your browser bookmarks.</p>
+          </div>
+        ) : (
+          Array.from(grouped.entries()).map(([folderPath, items]) => (
+            <div key={folderPath} style={{ marginBottom: 'var(--space-8)' }}>
+              <h3 style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 'var(--space-3)' }}>
+                {folderPath}
+              </h3>
+              <div style={{ display: 'grid', gridTemplateColumns: viewMode === 'grid' ? 'repeat(auto-fill, minmax(280px, 1fr))' : '1fr', gap: 'var(--space-3)' }}>
+                {items.map((b) => (
+                  <div key={b.id} className="vs-card" style={{ padding: 'var(--space-4)', display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+                    <div style={{ width: 32, height: 32, borderRadius: 'var(--radius-sm)', background: 'var(--bg-tertiary)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden' }}>
+                      {(() => {
+                        try {
+                          const domain = new URL(b.decrypted.url).hostname;
+                          const src = b.decrypted.favicon || `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
+                          return <img src={src} alt="" width={20} height={20} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />;
+                        } catch {
+                          return <Bookmark size={16} style={{ color: 'var(--text-tertiary)' }} />;
+                        }
+                      })()}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 500, color: 'var(--text-primary)', fontSize: '0.875rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {b.decrypted.title}
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {b.decrypted.url}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 'var(--space-1)' }}>
+                      <a href={b.decrypted.url} target="_blank" rel="noopener noreferrer" className="vs-btn vs-btn-ghost" style={{ padding: 4 }}>
+                        <ExternalLink size={14} />
+                      </a>
+                      <button className="vs-btn vs-btn-ghost" style={{ padding: 4 }} onClick={() => startEditing(b)} title="Edit">
+                        <Edit size={14} />
+                      </button>
+                      <button className="vs-btn vs-btn-ghost" style={{ padding: 4, color: 'var(--danger)' }} onClick={() => handleDelete(b.id)} title="Delete">
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))
+        )}
+
+        {editingBookmark && (
+          <EditBookmarkModal
+            bookmark={editingBookmark}
+            onClose={() => setEditingBookmark(null)}
+            onSaved={() => {
+              setEditingBookmark(null);
+              loadBookmarks();
+            }}
+            getVaultKey={getVaultKey}
+          />
+        )}
+      </div>
     </div>
   );
 }

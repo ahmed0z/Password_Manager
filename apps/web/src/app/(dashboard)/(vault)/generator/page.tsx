@@ -42,7 +42,7 @@ export default function GeneratorPage() {
   };
 
   return (
-    <div>
+    <div style={{ maxWidth: 600, margin: '0 auto' }}>
       <div className="dashboard-header">
         <div>
           <h1 className="dashboard-title">Password Generator</h1>
@@ -52,7 +52,7 @@ export default function GeneratorPage() {
         </div>
       </div>
 
-      <div style={{ maxWidth: 600 }}>
+      <div>
         {/* Generated Password Display */}
         <div
           className="vs-card-static"

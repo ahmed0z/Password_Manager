@@ -3,14 +3,15 @@
 import { useEffect, useState, useCallback, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
-  Plus, Search, Key, Star, Copy, Eye, EyeOff,
-  ExternalLink, Trash2, Edit3, Loader2, FolderPlus,
+  Plus, Search, Key, Star, Copy, Eye, EyeOff, Check,
+  ExternalLink, Trash2, Edit3, Loader2, FolderPlus, FolderClosed,
 } from 'lucide-react';
 import {
   getVaultItems, deleteVaultItem, toggleFavorite,
   createVaultItem, updateVaultItem, getFolders, createFolder,
   type DecryptedVaultItem, type VaultItem, type DecryptedFolder, base64ToUint8Array
 } from '@vaultsync/core';
+import FoldersPanel from '../../_components/FoldersPanel';
 
 function VaultContent() {
   const searchParams = useSearchParams();
@@ -61,8 +62,24 @@ function VaultContent() {
     };
   }, [loadData]);
 
+  // Persist sidebar width via cookies on resizing completed
+  useEffect(() => {
+    const handleMouseUp = () => {
+      const el = document.querySelector('.page-sidebar-panel');
+      if (el) {
+        const width = el.getBoundingClientRect().width;
+        const widthStr = `${width}px`;
+        document.cookie = `vaultsync-sidebar-width=${widthStr}; path=/; max-age=31536000; SameSite=Lax`;
+        document.documentElement.style.setProperty('--sidebar-width', widthStr);
+      }
+    };
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, []);
+
   const filteredItems = items.filter((item) => {
-    // Filter by selected folder if present
     if (selectedFolderId && item.folder_id !== selectedFolderId) return false;
 
     if (!searchQuery) return true;
@@ -78,7 +95,6 @@ function VaultContent() {
 
   const favorites = filteredItems.filter((i) => i.is_favorite);
   const regular = filteredItems.filter((i) => !i.is_favorite);
-
 
   const handleCopy = async (text: string, id: string) => {
     await navigator.clipboard.writeText(text);
@@ -140,48 +156,70 @@ function VaultContent() {
     : `${items.length} ${items.length === 1 ? 'item' : 'items'} stored securely`;
 
   return (
-    <div>
-      {/* Header */}
-      <div className="dashboard-header">
-        <div>
-          <h1 className="dashboard-title">Vault</h1>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
-            {subtitle}
-          </p>
-        </div>
-        <div className="dashboard-actions">
-          <button className="vs-btn vs-btn-secondary" onClick={() => setShowFolderModal(true)}>
-            <FolderPlus size={16} />
-            New Folder
-          </button>
-          <button className="vs-btn vs-btn-primary" onClick={() => setShowAddModal(true)}>
-            <Plus size={16} />
-            Add Password
-          </button>
-        </div>
-      </div>
+    <div className="page-layout-container">
+      <aside className="page-sidebar-panel">
+        <FoldersPanel pathname="/vault" />
+      </aside>
 
-      {/* Search */}
-      <div className="search-container" style={{ marginBottom: 'var(--space-6)', maxWidth: 400 }}>
-        <Search size={16} className="search-icon" />
-        <input
-          type="text"
-          className="vs-input search-input"
-          placeholder="Search vault items..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          id="vault-search"
-        />
-      </div>
+      {/* Main Panel */}
+      <div className="page-main-panel">
+        {/* Header */}
+        <div className="dashboard-header">
+          <div>
+            <h1 className="dashboard-title">Vault</h1>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
+              {subtitle}
+            </p>
+          </div>
+          <div className="dashboard-actions">
+            <button className="vs-btn vs-btn-primary" onClick={() => setShowAddModal(true)}>
+              <Plus size={16} />
+              Add Password
+            </button>
+          </div>
+        </div>
 
-      {/* Favorites */}
-      {favorites.length > 0 && (
-        <div style={{ marginBottom: 'var(--space-8)' }}>
-          <h2 style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 'var(--space-4)' }}>
-            ★ Favorites
-          </h2>
+        {/* Search */}
+        <div className="search-container" style={{ marginBottom: 'var(--space-6)', maxWidth: 400 }}>
+          <Search size={16} className="search-icon" />
+          <input
+            type="text"
+            className="vs-input search-input"
+            placeholder="Search vault items..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            id="vault-search"
+          />
+        </div>
+
+        {/* Favorites */}
+        {favorites.length > 0 && (
+          <div style={{ marginBottom: 'var(--space-8)' }}>
+            <h2 style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 'var(--space-4)' }}>
+              ★ Favorites
+            </h2>
+            <div className="vault-grid">
+              {favorites.map((item) => (
+                <VaultCard
+                  key={item.id}
+                  item={item}
+                  isRevealed={revealedPasswords.has(item.id)}
+                  isCopied={copiedId === item.id}
+                  onToggleReveal={() => togglePasswordReveal(item.id)}
+                  onCopy={(text) => handleCopy(text, item.id)}
+                  onToggleFavorite={() => handleToggleFavorite(item.id, item.is_favorite)}
+                  onDelete={() => handleDelete(item.id)}
+                  onEdit={() => setEditingItem(item)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* All Items */}
+        {regular.length > 0 ? (
           <div className="vault-grid">
-            {favorites.map((item) => (
+            {regular.map((item) => (
               <VaultCard
                 key={item.id}
                 item={item}
@@ -195,82 +233,64 @@ function VaultContent() {
               />
             ))}
           </div>
-        </div>
-      )}
+        ) : (
+          items.length === 0 && (
+            <div className="empty-state">
+              <Key size={64} className="empty-state-icon" />
+              <h2 style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 'var(--space-2)' }}>
+                Your vault is empty
+              </h2>
+              <p style={{ maxWidth: 400, marginBottom: 'var(--space-6)' }}>
+                Start adding passwords to your encrypted vault. They&apos;ll sync across all your devices.
+              </p>
+              <button className="vs-btn vs-btn-primary" onClick={() => setShowAddModal(true)}>
+                <Plus size={16} />
+                Add Your First Password
+              </button>
+            </div>
+          )
+        )}
 
-      {/* All Items */}
-      {regular.length > 0 ? (
-        <div className="vault-grid">
-          {regular.map((item) => (
-            <VaultCard
-              key={item.id}
-              item={item}
-              isRevealed={revealedPasswords.has(item.id)}
-              isCopied={copiedId === item.id}
-              onToggleReveal={() => togglePasswordReveal(item.id)}
-              onCopy={(text) => handleCopy(text, item.id)}
-              onToggleFavorite={() => handleToggleFavorite(item.id, item.is_favorite)}
-              onDelete={() => handleDelete(item.id)}
-              onEdit={() => setEditingItem(item)}
-            />
-          ))}
-        </div>
-      ) : (
-        items.length === 0 && (
-          <div className="empty-state">
-            <Key size={64} className="empty-state-icon" />
-            <h2 style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 'var(--space-2)' }}>
-              Your vault is empty
-            </h2>
-            <p style={{ maxWidth: 400, marginBottom: 'var(--space-6)' }}>
-              Start adding passwords to your encrypted vault. They&apos;ll sync across all your devices.
-            </p>
-            <button className="vs-btn vs-btn-primary" onClick={() => setShowAddModal(true)}>
-              <Plus size={16} />
-              Add Your First Password
-            </button>
-          </div>
-        )
-      )}
+        {/* Add Password Modal */}
+        {showAddModal && (
+          <AddPasswordModal
+            folders={folders}
+            onClose={() => setShowAddModal(false)}
+            onAdded={() => {
+              setShowAddModal(false);
+              loadData();
+            }}
+            getVaultKey={getVaultKey}
+          />
+        )}
 
-      {/* Add Password Modal */}
-      {showAddModal && (
-        <AddPasswordModal
-          folders={folders}
-          onClose={() => setShowAddModal(false)}
-          onAdded={() => {
-            setShowAddModal(false);
-            loadData();
-          }}
-          getVaultKey={getVaultKey}
-        />
-      )}
+        {/* Password Detail Modal */}
+        {editingItem && (
+          <PasswordDetailModal
+            item={editingItem}
+            folders={folders}
+            onClose={() => setEditingItem(null)}
+            onUpdated={() => {
+              setEditingItem(null);
+              loadData();
+            }}
+            getVaultKey={getVaultKey}
+            onDelete={handleDelete}
+          />
+        )}
 
-      {/* Edit Password Modal */}
-      {editingItem && (
-        <EditPasswordModal
-          item={editingItem}
-          folders={folders}
-          onClose={() => setEditingItem(null)}
-          onUpdated={() => {
-            setEditingItem(null);
-            loadData();
-          }}
-          getVaultKey={getVaultKey}
-        />
-      )}
-
-      {/* Add Folder Modal */}
-      {showFolderModal && (
-        <AddFolderModal
-          onClose={() => setShowFolderModal(false)}
-          onAdded={() => {
-            setShowFolderModal(false);
-            loadData();
-          }}
-          getVaultKey={getVaultKey}
-        />
-      )}
+        {/* Add Folder Modal */}
+        {showFolderModal && (
+          <AddFolderModal
+            onClose={() => setShowFolderModal(false)}
+            onAdded={() => {
+              setShowFolderModal(false);
+              loadData();
+            }}
+            getVaultKey={getVaultKey}
+          />
+        )}
+      </div>
     </div>
   );
 }
@@ -418,22 +438,29 @@ function VaultCard({
 }
 
 // ---------------------------------------------------------------------------
-// Edit Password Modal
+// Password Detail Modal (Preview & Edit)
 // ---------------------------------------------------------------------------
 
-function EditPasswordModal({
+function PasswordDetailModal({
   item,
   folders,
   onClose,
   onUpdated,
   getVaultKey,
+  onDelete,
 }: {
   item: VaultItem & { decrypted: DecryptedVaultItem };
   folders: DecryptedFolder[];
   onClose: () => void;
   onUpdated: () => void;
   getVaultKey: () => Promise<Uint8Array | null>;
+  onDelete: (id: string) => Promise<void>;
 }) {
+  const [mode, setMode] = useState<'preview' | 'edit'>('preview');
+  const [passwordRevealed, setPasswordRevealed] = useState(false);
+  const [copiedField, setCopiedField] = useState<'username' | 'password' | null>(null);
+
+  // Edit form state
   const [title, setTitle] = useState(item.decrypted.title || '');
   const [username, setUsername] = useState(item.decrypted.username || '');
   const [password, setPassword] = useState(item.decrypted.password || '');
@@ -443,7 +470,13 @@ function EditPasswordModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleCopy = async (text: string, field: 'username' | 'password') => {
+    await navigator.clipboard.writeText(text);
+    setCopiedField(field);
+    setTimeout(() => setCopiedField(null), 2000);
+  };
+
+  const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
@@ -466,14 +499,163 @@ function EditPasswordModal({
     }
   };
 
+  const selectedFolder = folders.find((f) => f.id === (mode === 'edit' ? folderId : item.folder_id));
+  const folderName = selectedFolder?.name;
+
+  if (mode === 'preview') {
+    return (
+      <div className="modal-overlay" onClick={onClose}>
+        <div className="vs-card-static modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 420, padding: 0 }}>
+          {/* Header */}
+          <div style={{ padding: 'var(--space-6)', display: 'flex', alignItems: 'center', gap: 'var(--space-4)', borderBottom: '1px solid var(--surface-border)' }}>
+            <div className="vault-card-favicon" style={{ width: 48, height: 48, borderRadius: 'var(--radius-md)', flexShrink: 0 }}>
+              {item.favicon_url ? (
+                <img src={item.favicon_url} alt="" width={32} height={32} />
+              ) : (
+                <Key size={24} style={{ color: 'var(--text-tertiary)' }} />
+              )}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <h2 style={{ fontSize: '1.125rem', fontWeight: 700, color: 'var(--text-primary)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', padding: 0 }}>
+                {item.decrypted.title}
+              </h2>
+              {item.decrypted.url && (
+                <a
+                  href={item.decrypted.url.startsWith('http') ? item.decrypted.url : `https://${item.decrypted.url}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ fontSize: '0.8125rem', color: 'var(--accent-text)', display: 'flex', alignItems: 'center', gap: 4, textDecoration: 'none', width: 'fit-content', marginTop: 2 }}
+                >
+                  <span style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                    {item.domain || item.decrypted.url}
+                  </span>
+                  <ExternalLink size={12} style={{ flexShrink: 0 }} />
+                </a>
+              )}
+            </div>
+          </div>
+
+          {/* Details Body */}
+          <div style={{ padding: 'var(--space-6)', display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' }}>
+            {/* Username / Email */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 'var(--space-3) var(--space-4)', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)', border: '1px solid var(--surface-border)' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: '0.6875rem', color: 'var(--text-tertiary)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Username / Email
+                </div>
+                <div style={{ fontSize: '0.875rem', color: 'var(--text-primary)', marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {item.decrypted.username}
+                </div>
+              </div>
+              <button
+                className="vs-btn vs-btn-ghost"
+                style={{ padding: 6, color: 'var(--text-secondary)' }}
+                onClick={() => handleCopy(item.decrypted.username, 'username')}
+                title="Copy username"
+              >
+                {copiedField === 'username' ? <Check size={14} style={{ color: 'var(--success)' }} /> : <Copy size={14} />}
+              </button>
+            </div>
+
+            {/* Password */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 'var(--space-3) var(--space-4)', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)', border: '1px solid var(--surface-border)' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: '0.6875rem', color: 'var(--text-tertiary)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Password
+                </div>
+                <div
+                  style={{
+                    fontFamily: 'var(--font-mono), monospace',
+                    fontSize: '0.875rem',
+                    color: 'var(--text-primary)',
+                    marginTop: 4,
+                    letterSpacing: passwordRevealed ? '0.05em' : '0.15em',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {passwordRevealed ? item.decrypted.password : '••••••••••••'}
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 4 }}>
+                <button
+                  className="vs-btn vs-btn-ghost"
+                  style={{ padding: 6, color: 'var(--text-secondary)' }}
+                  onClick={() => setPasswordRevealed(!passwordRevealed)}
+                  title={passwordRevealed ? 'Hide password' : 'Reveal password'}
+                >
+                  {passwordRevealed ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+                <button
+                  className="vs-btn vs-btn-ghost"
+                  style={{ padding: 6, color: 'var(--text-secondary)' }}
+                  onClick={() => handleCopy(item.decrypted.password, 'password')}
+                  title="Copy password"
+                >
+                  {copiedField === 'password' ? <Check size={14} style={{ color: 'var(--success)' }} /> : <Copy size={14} />}
+                </button>
+              </div>
+            </div>
+
+            {/* Folder */}
+            {folderName && (
+              <div>
+                <div style={{ fontSize: '0.6875rem', color: 'var(--text-tertiary)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>
+                  Folder
+                </div>
+                <div style={{ fontSize: '0.875rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <FolderClosed size={14} style={{ color: 'var(--text-tertiary)' }} />
+                  <span>{folderName}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Notes */}
+            {item.decrypted.notes && (
+              <div>
+                <div style={{ fontSize: '0.6875rem', color: 'var(--text-tertiary)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>
+                  Notes
+                </div>
+                <div style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', padding: 'var(--space-3) var(--space-4)', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)', border: '1px solid var(--surface-border)', whiteSpace: 'pre-wrap', maxHeight: '100px', overflowY: 'auto' }}>
+                  {item.decrypted.notes}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Action Footer */}
+          <div style={{ padding: 'var(--space-4) var(--space-6)', borderTop: '1px solid var(--surface-border)', display: 'flex', gap: 'var(--space-3)', justifyContent: 'flex-end', background: 'var(--bg-secondary)', borderBottomLeftRadius: 'var(--radius-xl)', borderBottomRightRadius: 'var(--radius-xl)' }}>
+            <button 
+              type="button" 
+              className="vs-btn vs-btn-danger" 
+              style={{ marginRight: 'auto', padding: '6px 12px', fontSize: '0.8125rem' }} 
+              onClick={() => { onDelete(item.id); onClose(); }}
+            >
+              <Trash2 size={14} />
+              <span>Delete</span>
+            </button>
+            <button type="button" className="vs-btn vs-btn-secondary" onClick={onClose} style={{ padding: '6px 12px', fontSize: '0.8125rem' }}>
+              Close
+            </button>
+            <button type="button" className="vs-btn vs-btn-primary" onClick={() => setMode('edit')} style={{ padding: '6px 16px', fontSize: '0.8125rem' }}>
+              <Edit3 size={14} />
+              <span>Edit Details</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="vs-card-static modal-content" onClick={(e) => e.stopPropagation()}>
+      <div className="vs-card-static modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 420 }}>
         <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 'var(--space-6)' }}>
           Edit Password Details
         </h2>
 
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleEditSubmit}>
           <div className="form-group">
             <label className="form-label" htmlFor="edit-title">Title</label>
             <input id="edit-title" className="vs-input" placeholder="e.g., Gmail, Netflix" value={title} onChange={(e) => setTitle(e.target.value)} required />
@@ -514,7 +696,7 @@ function EditPasswordModal({
           {error && <p className="form-error">{error}</p>}
 
           <div style={{ display: 'flex', gap: 'var(--space-3)', justifyContent: 'flex-end', marginTop: 'var(--space-4)' }}>
-            <button type="button" className="vs-btn vs-btn-secondary" onClick={onClose}>Cancel</button>
+            <button type="button" className="vs-btn vs-btn-secondary" onClick={() => setMode('preview')}>Cancel</button>
             <button type="submit" className="vs-btn vs-btn-primary" disabled={loading}>
               {loading ? <><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> Saving...</> : <><Edit3 size={16} /> Save Changes</>}
             </button>

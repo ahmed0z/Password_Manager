@@ -16,4 +16,12 @@ config.resolver.nodeModulesPaths = [
   path.resolve(monorepoRoot, 'node_modules'),
 ];
 
+// Block Metro from watching Next.js build directories and extension dist folders to prevent ENOENT crashes
+config.resolver.blockList = [
+  /[\\/]apps[\\/]web[\\/]\.next/,
+  /[\\/]apps[\\/]web[\\/]out/,
+  /[\\/]apps[\\/]extension[\\/]dist/,
+  /[\\/]\.turbo/,
+];
+
 module.exports = config;

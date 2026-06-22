@@ -53,6 +53,10 @@ function injectStyles() {
     .vaultsync-toast-btn:hover {
       filter: brightness(1.15);
     }
+    .vaultsync-bubble-close:hover {
+      color: #f1f5f9 !important;
+      background: rgba(255, 255, 255, 0.1) !important;
+    }
   `;
   document.head.appendChild(style);
 }
@@ -252,16 +256,24 @@ function showAutofillBubble(field: DetectedField, itemCount: number) {
     <div style="width: 24px; height: 24px; border-radius: 7px; background: linear-gradient(135deg, #5ce0d6, #a78bfa); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
     </div>
-    <div style="flex: 1;">
-      <div style="font-weight: 600; font-size: 13px;">${itemCount} saved credential${itemCount !== 1 ? 's' : ''}</div>
+    <div style="flex: 1; min-width: 0;">
+      <div style="font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${itemCount} saved credential${itemCount !== 1 ? 's' : ''}</div>
       <div style="font-size: 11px; color: #94a3b8; margin-top: 1px;">Click to autofill</div>
     </div>
-    <div style="background: rgba(92,224,214,0.15); color: #5ce0d6; font-weight: 700; font-size: 11px; padding: 4px 10px; border-radius: 6px;">Fill</div>
+    <div style="background: rgba(92,224,214,0.15); color: #5ce0d6; font-weight: 700; font-size: 11px; padding: 4px 10px; border-radius: 6px; flex-shrink: 0; margin-right: 2px;">Fill</div>
+    <button class="vaultsync-bubble-close" style="background: none; border: none; color: #64748b; cursor: pointer; padding: 4px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; border-radius: 6px; transition: color 0.15s, background 0.15s;" title="Dismiss">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+    </button>
   `;
 
   bubble.addEventListener('click', (e) => {
     e.stopPropagation();
     fillCredentials(field);
+    removeAutofillBubble();
+  });
+
+  bubble.querySelector('.vaultsync-bubble-close')?.addEventListener('click', (e) => {
+    e.stopPropagation();
     removeAutofillBubble();
   });
 

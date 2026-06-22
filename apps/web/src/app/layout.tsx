@@ -35,6 +35,25 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function() {
+                try {
+                  var savedWidth = document.cookie.split('; ').find(function(row) {
+                    return row.indexOf('vaultsync-sidebar-width=') === 0;
+                  });
+                  if (savedWidth) {
+                    var widthVal = savedWidth.split('=')[1];
+                    document.documentElement.style.setProperty('--sidebar-width', widthVal);
+                  }
+                } catch (e) {}
+              })();
+            `,
+          }}
+        />
+      </head>
       <body className={`${inter.variable} ${jetbrainsMono.variable}`}>
         <ThemeProvider>{children}</ThemeProvider>
       </body>

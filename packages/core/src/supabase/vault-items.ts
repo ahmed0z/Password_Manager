@@ -270,7 +270,7 @@ export function subscribeToVaultItems(
   const supabase = getSupabaseClient();
 
   return supabase
-    .channel('vault_items_changes')
+    .channel(`vault_items_changes_${userId}_${Math.random().toString(36).slice(2, 9)}`)
     .on(
       'postgres_changes',
       {

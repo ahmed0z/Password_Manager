@@ -165,7 +165,7 @@ export function subscribeToFolders(
   const supabase = getSupabaseClient();
 
   return supabase
-    .channel('folders_changes')
+    .channel(`folders_changes_${userId}_${Math.random().toString(36).slice(2, 9)}`)
     .on(
       'postgres_changes',
       {

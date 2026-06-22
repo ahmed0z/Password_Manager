@@ -165,7 +165,7 @@ export function subscribeToBookmarks(
   const supabase = getSupabaseClient();
 
   return supabase
-    .channel('bookmarks_changes')
+    .channel(`bookmarks_changes_${userId}_${Math.random().toString(36).slice(2, 9)}`)
     .on(
       'postgres_changes',
       {

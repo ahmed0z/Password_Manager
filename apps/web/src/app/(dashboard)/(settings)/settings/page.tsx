@@ -216,7 +216,7 @@ export default function SettingsPage() {
   ];
 
   return (
-    <div>
+    <div style={{ maxWidth: 600, margin: '0 auto' }}>
       <div className="dashboard-header">
         <div>
           <h1 className="dashboard-title">Settings</h1>
@@ -226,7 +226,7 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      <div style={{ maxWidth: 600, display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
         {/* Vault Stats */}
         <div className="vs-card-static" style={{ padding: 'var(--space-6)' }}>
           <h2 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 'var(--space-4)' }}>
